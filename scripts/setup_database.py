@@ -12,6 +12,15 @@ DB_PARAMS = {
     "port": 5432
 }
 
+def column_exists(cursor, table_name, column_name):
+    """Check if a column exists in a table"""
+    cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = %s AND column_name = %s
+    """, (table_name, column_name))
+    return cursor.fetchone() is not None
+
 def create_tables():
     """Create database tables for storing bookmarks data with vector support"""
     
@@ -28,7 +37,6 @@ def create_tables():
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         name TEXT,
-        screen_name TEXT,
         verified BOOLEAN,
         followers_count INTEGER,
         following_count INTEGER,
@@ -47,10 +55,10 @@ def create_tables():
         reply_count INTEGER,
         quote_count INTEGER,
         is_quote_status BOOLEAN,
+        quoted_tweet_id TEXT,
         url TEXT,
         has_media BOOLEAN,
-        embedding vector(1536),
-        CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id)
+        embedding vector(1536)
     );
     """)
     
@@ -63,8 +71,8 @@ def create_tables():
     
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tweet_hashtags (
-        tweet_id TEXT REFERENCES tweets(id),
-        hashtag_id INTEGER REFERENCES hashtags(id),
+        tweet_id TEXT,
+        hashtag_id INTEGER,
         PRIMARY KEY (tweet_id, hashtag_id)
     );
     """)
@@ -72,20 +80,22 @@ def create_tables():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS urls (
         id SERIAL PRIMARY KEY,
-        tweet_id TEXT REFERENCES tweets(id),
+        tweet_id TEXT,
         url TEXT,
         expanded_url TEXT,
-        display_url TEXT
+        display_url TEXT,
+        UNIQUE(tweet_id, url)
     );
     """)
     
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS media (
         id SERIAL PRIMARY KEY,
-        tweet_id TEXT REFERENCES tweets(id),
+        tweet_id TEXT,
         media_url TEXT,
         type TEXT,
-        alt_text TEXT
+        alt_text TEXT,
+        UNIQUE(tweet_id, media_url)
     );
     """)
     
@@ -95,13 +105,57 @@ def create_tables():
         user_id TEXT REFERENCES users(id),
         url TEXT,
         expanded_url TEXT,
-        display_url TEXT
+        display_url TEXT,
+        UNIQUE(user_id, url)
+    );
+    """)
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS quoted_tweet_media (
+        id SERIAL PRIMARY KEY,
+        quoted_tweet_id TEXT,
+        media_url TEXT,
+        type TEXT,
+        alt_text TEXT,
+        video_info JSONB,
+        UNIQUE(quoted_tweet_id, media_url)
+    );
+    """)
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS quoted_tweet_hashtags (
+        quoted_tweet_id TEXT,
+        hashtag_id INTEGER,
+        PRIMARY KEY (quoted_tweet_id, hashtag_id)
+    );
+    """)
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS quoted_tweet_urls (
+        id SERIAL PRIMARY KEY,
+        quoted_tweet_id TEXT,
+        url TEXT,
+        expanded_url TEXT,
+        display_url TEXT,
+        UNIQUE(quoted_tweet_id, url)
+    );
+    """)
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS quoted_tweet_user_description_urls (
+        id SERIAL PRIMARY KEY,
+        quoted_tweet_id TEXT,
+        url TEXT,
+        expanded_url TEXT,
+        display_url TEXT,
+        UNIQUE(quoted_tweet_id, url)
     );
     """)
     
     # Create indexes for better performance
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tweet_user_id ON tweets(user_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_hashtag_tag ON hashtags(tag);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tweet_quoted_tweet_id ON tweets(quoted_tweet_id);")
     
     # Close the connection
     cursor.close()
