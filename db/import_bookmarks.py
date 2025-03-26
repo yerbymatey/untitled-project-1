@@ -5,13 +5,15 @@ import os
 from datetime import datetime
 from psycopg2.extras import execute_values
 
-# Database connection parameters from docker-compose.yml
+from dotenv import load_dotenv
+load_dotenv()
+
 DB_PARAMS = {
-    "dbname": "mydb",
-    "user": "postgres",
-    "password": "postgres",
-    "host": "localhost",
-    "port": 5432
+    "dbname": os.getenv("POSTGRES_DB"),
+    "user": os.getenv("POSTGRES_USER"), 
+    "password": os.getenv("POSTGRES_PASSWORD"),
+    "host": os.getenv("POSTGRES_HOST"),
+    "port": int(os.getenv("POSTGRES_PORT"))
 }
 
 BATCH_SIZE = 1000

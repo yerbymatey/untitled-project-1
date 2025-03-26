@@ -3,13 +3,15 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import os
 import glob
 
-# Database connection parameters from docker-compose.yml
+from dotenv import load_dotenv
+load_dotenv()
+
 DB_PARAMS = {
-    "dbname": "mydb",
-    "user": "postgres",
-    "password": "postgres",
-    "host": "localhost",
-    "port": 5432
+    "dbname": os.getenv("POSTGRES_DB", "mydb"),
+    "user": os.getenv("POSTGRES_USER", "postgres"),
+    "password": os.getenv("POSTGRES_PASSWORD", "postgres"),
+    "host": os.getenv("POSTGRES_HOST", "localhost"),
+    "port": int(os.getenv("POSTGRES_PORT", "5432"))
 }
 
 def column_exists(cursor, table_name, column_name):
