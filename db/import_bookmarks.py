@@ -32,8 +32,7 @@ def import_bookmarks_file(file_path):
     """Import bookmarks from a JSON file into the database"""
     
     print(f"Importing data from {file_path}...")
-    
-    # Load JSON data
+
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
@@ -41,8 +40,7 @@ def import_bookmarks_file(file_path):
     if not bookmarks:
         print("No bookmarks found in the file")
         return 0
-    
-    # Connect to the database
+
     conn = psycopg2.connect(**DB_PARAMS)
     cursor = conn.cursor()
     
@@ -319,8 +317,6 @@ def import_bookmarks_file(file_path):
 
 def import_all_bookmarks():
     """Import all bookmark JSON files in the current directory"""
-    
-    # Find all bookmark JSON files
     bookmark_files = glob.glob("bookmarks_*.json")
     
     if not bookmark_files:
