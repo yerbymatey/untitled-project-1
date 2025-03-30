@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twitter-bookmarks"
+version = "0.1.0"
+description = "A tool to fetch and store Twitter/X bookmarks with vector search capabilities"
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+    "psycopg2-binary>=2.9.9",
+    "python-dotenv>=1.0.0",
+    "playwright>=1.42.0",
+    "torch>=2.0.0",
+    "transformers>=4.36.0",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "tqdm>=4.65.0",
+    "huggingface-hub>=0.19.0",
+    "google-generativeai>=0.3.0",
+    "openai>=1.0.0",
+    "objc>=9.0.0",
+    "deepseek-vl>=0.1.0",
+]
+
+[project.scripts]
+twitter-bookmarks = "scripts.run_scraper:main"
+grab-headers = "scrapers.grab_headers:save_twitter_headers" 
