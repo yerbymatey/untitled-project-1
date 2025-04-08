@@ -1,3 +1,5 @@
+"""Database package for twitter_bookmarks."""
+
 from .session import DatabaseSession, get_db_session
 
 __all__ = [
