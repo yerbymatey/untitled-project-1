@@ -72,6 +72,9 @@ DB_CONFIG = {
 
 # Database Schema
 DB_SCHEMA = """
+-- Create the vector extension if it doesn't exist
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255),
@@ -93,7 +96,8 @@ CREATE TABLE IF NOT EXISTS tweets (
     is_quote_status BOOLEAN DEFAULT FALSE,
     quoted_tweet_id VARCHAR(20),
     url TEXT,
-    has_media BOOLEAN DEFAULT FALSE
+    has_media BOOLEAN DEFAULT FALSE,
+    embedding vector(1536)
 );
 
 CREATE TABLE IF NOT EXISTS hashtags (
@@ -129,5 +133,11 @@ CREATE TABLE IF NOT EXISTS user_description_urls (
     expanded_url TEXT,
     display_url TEXT,
     PRIMARY KEY (user_id, url)
+);
+
+CREATE TABLE IF NOT EXISTS tweet_interpretations (
+    tweet_id VARCHAR(20) REFERENCES tweets(id) PRIMARY KEY,
+    interpretation TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 """
