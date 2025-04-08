@@ -52,11 +52,7 @@ def import_bookmarks_file(file_path):
         # Prepare batch data structures
         users_data = []
         tweets_data = []
-        hashtags_data = []
-        tweet_hashtags_data = []
-        urls_data = []
         media_data = []
-        user_urls_data = []
         
         # Process each bookmark
         for bookmark in bookmarks:
@@ -111,26 +107,6 @@ def import_bookmarks_file(file_path):
                 )
                 tweets_data.append(tweet_data)
                 
-                # Process hashtags with defensive checks
-                hashtags = bookmark.get('hashtags', [])
-                if isinstance(hashtags, list):
-                    for tag in hashtags:
-                        if tag:
-                            hashtags_data.append((tag,))
-                            tweet_hashtags_data.append((bookmark['id'], tag))
-                
-                # Process URLs with defensive checks
-                urls = bookmark.get('urls', [])
-                if isinstance(urls, list):
-                    for url_data in urls:
-                        if url_data:
-                            urls_data.append((
-                                bookmark['id'],
-                                url_data.get('url', ''),
-                                url_data.get('expanded_url', ''),
-                                url_data.get('display_url', '')
-                            ))
-                
                 # Process media with defensive checks
                 media_items = media.get('items', []) if media else []
                 if isinstance(media_items, list):
@@ -140,19 +116,8 @@ def import_bookmarks_file(file_path):
                                 bookmark['id'],
                                 media_item.get('media_url', ''),
                                 media_item.get('type', ''),
-                                media_item.get('alt_text', '')
-                            ))
-                
-                # Process user description URLs with defensive checks
-                description_urls = user.get('description_urls', [])
-                if isinstance(description_urls, list):
-                    for url_data in description_urls:
-                        if url_data:
-                            user_urls_data.append((
-                                screen_name,  # Use screen_name as user_id
-                                url_data.get('url', ''),
-                                url_data.get('expanded_url', ''),
-                                url_data.get('display_url', '')
+                                media_item.get('alt_text', ''),
+                                media_item.get('image_desc', '')
                             ))
                 
                 processed_count += 1
@@ -166,18 +131,12 @@ def import_bookmarks_file(file_path):
         # Deduplicate data before batch inserts using dictionaries
         users_dict = {data[0]: data for data in users_data}  # Use screen_name as key
         tweets_dict = {data[0]: data for data in tweets_data}  # Use tweet ID as key
-        hashtags_dict = {data[0]: data for data in hashtags_data}  # Use tag as key
-        urls_dict = {(data[0], data[1]): data for data in urls_data}  # Use (tweet_id, url) as key
         media_dict = {(data[0], data[1]): data for data in media_data}  # Use (tweet_id, media_url) as key
-        user_urls_dict = {(data[0], data[1]): data for data in user_urls_data}  # Use (user_id, url) as key
         
         # Convert back to lists
         users_data = list(users_dict.values())
         tweets_data = list(tweets_dict.values())
-        hashtags_data = list(hashtags_dict.values())
-        urls_data = list(urls_dict.values())
         media_data = list(media_dict.values())
-        user_urls_data = list(user_urls_dict.values())
         
         # Batch insert users
         if users_data:
@@ -222,83 +181,20 @@ def import_bookmarks_file(file_path):
                 tweets_data
             )
         
-        # Batch insert hashtags
-        if hashtags_data:
-            print(f"Inserting {len(hashtags_data)} hashtags...")
-            execute_values(
-                cursor,
-                """
-                INSERT INTO hashtags (tag)
-                VALUES %s
-                ON CONFLICT (tag) DO NOTHING
-                """,
-                hashtags_data
-            )
-            
-            # Get hashtag IDs for tweet_hashtags
-            cursor.execute("SELECT id, tag FROM hashtags")
-            hashtag_map = {tag: id for id, tag in cursor.fetchall()}
-            
-            # Create tweet_hashtags connections
-            tweet_hashtag_values = [(tweet_id, hashtag_map.get(tag)) 
-                                   for tweet_id, tag in tweet_hashtags_data
-                                   if hashtag_map.get(tag)]
-            
-            if tweet_hashtag_values:
-                print(f"Creating {len(tweet_hashtag_values)} tweet-hashtag connections...")
-                execute_values(
-                    cursor,
-                    """
-                    INSERT INTO tweet_hashtags (tweet_id, hashtag_id)
-                    VALUES %s
-                    ON CONFLICT (tweet_id, hashtag_id) DO NOTHING
-                    """,
-                    tweet_hashtag_values
-                )
-        
-        # Batch insert URLs
-        if urls_data:
-            print(f"Inserting {len(urls_data)} URLs...")
-            execute_values(
-                cursor,
-                """
-                INSERT INTO urls (tweet_id, url, expanded_url, display_url)
-                VALUES %s
-                ON CONFLICT (tweet_id, url) DO UPDATE SET
-                    expanded_url = EXCLUDED.expanded_url,
-                    display_url = EXCLUDED.display_url
-                """,
-                urls_data
-            )
-        
         # Batch insert media
         if media_data:
             print(f"Inserting {len(media_data)} media items...")
             execute_values(
                 cursor,
                 """
-                INSERT INTO media (tweet_id, media_url, type, alt_text)
+                INSERT INTO media (tweet_id, media_url, type, alt_text, image_desc)
                 VALUES %s
                 ON CONFLICT (tweet_id, media_url) DO UPDATE SET
                     type = EXCLUDED.type,
-                    alt_text = EXCLUDED.alt_text
+                    alt_text = EXCLUDED.alt_text,
+                    image_desc = COALESCE(media.image_desc, EXCLUDED.image_desc, '')
                 """,
                 media_data
-            )
-        
-        # Batch insert user description URLs
-        if user_urls_data:
-            print(f"Inserting {len(user_urls_data)} user description URLs...")
-            execute_values(
-                cursor,
-                """
-                INSERT INTO user_description_urls (user_id, url, expanded_url, display_url)
-                VALUES %s
-                ON CONFLICT (user_id, url) DO UPDATE SET
-                    expanded_url = EXCLUDED.expanded_url,
-                    display_url = EXCLUDED.display_url
-                """,
-                user_urls_data
             )
         
         # Commit the transaction
@@ -317,7 +213,7 @@ def import_bookmarks_file(file_path):
 
 def import_all_bookmarks():
     """Import all bookmark JSON files in the current directory"""
-    bookmark_files = glob.glob("bookmarks_*.json")
+    bookmark_files = glob.glob("bookmarks_*.json") # TODO: pull in tweets from remote worker queue?
     
     if not bookmark_files:
         print("No bookmark files found in the current directory")
