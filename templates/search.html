@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semantic Tweet Search</title>
+    <script src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .tweet-container {
+            min-height: 100px;
+            transition: all 0.3s ease;
+        }
+        .loading {
+            opacity: 0.5;
+        }
+        .results-column {
+            width: 100%;
+        }
+        @media (max-width: 1024px) {
+            .results-container {
+                flex-direction: column;
+            }
+            .results-column {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-4xl font-bold text-center mb-8">Semantic Tweet Search</h1>
+        
+        <!-- Search Form -->
+        <div class="max-w-2xl mx-auto mb-8">
+            <div class="flex gap-4">
+                <input type="text" id="searchInput" 
+                       class="flex-1 px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="Enter your search query...">
+                <button onclick="performSearch(false)" 
+                        class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    Search
+                </button>
+            </div>
+        </div>
+
+        <!-- Results Stats -->
+        <div id="resultsStats" class="max-w-4xl mx-auto mb-8 text-gray-600 hidden">
+            <p>Found <span id="tweetCount">0</span> text tweets and <span id="mediaCount">0</span> media tweets</p>
+        </div>
+
+        <!-- Results Container -->
+        <div class="max-w-7xl mx-auto">
+            <div class="flex gap-8 results-container">
+                <!-- Text Tweets Column -->
+                <div class="results-column">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-2xl font-semibold">Text Tweets</h2>
+                        <button id="expandTweets" 
+                                onclick="performSearch(true)" 
+                                class="text-blue-500 hover:text-blue-700 hidden">
+                            Show More →
+                        </button>
+                    </div>
+                    <div id="tweetResults" class="space-y-4"></div>
+                </div>
+                
+                <!-- Media Tweets Column -->
+                <div class="results-column">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-2xl font-semibold">Media Tweets</h2>
+                        <button id="expandMedia" 
+                                onclick="performSearch(true)" 
+                                class="text-blue-500 hover:text-blue-700 hidden">
+                            Show More →
+                        </button>
+                    </div>
+                    <div id="mediaResults" class="space-y-4"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let lastQuery = '';
+        
+        async function performSearch(expanded = false) {
+            const query = document.getElementById('searchInput').value;
+            if (!query) return;
+            lastQuery = query;
+
+            // Clear previous results if not expanding
+            if (!expanded) {
+                document.getElementById('tweetResults').innerHTML = '';
+                document.getElementById('mediaResults').innerHTML = '';
+            }
+            
+            try {
+                const response = await fetch(`/search?q=${encodeURIComponent(query)}&expanded=${expanded}`);
+                const data = await response.json();
+                
+                // Update stats
+                document.getElementById('resultsStats').classList.remove('hidden');
+                document.getElementById('tweetCount').textContent = data.tweets.length;
+                document.getElementById('mediaCount').textContent = data.media.length;
+                
+                // Display tweets
+                if (!expanded) {
+                    displayResults(data.tweets, 'tweetResults');
+                    displayResults(data.media, 'mediaResults');
+                    
+                    // Show/hide expand buttons based on has_more
+                    document.getElementById('expandTweets').style.display = 
+                        data.has_more && data.tweets.length > 0 ? 'block' : 'none';
+                    document.getElementById('expandMedia').style.display = 
+                        data.has_more && data.media.length > 0 ? 'block' : 'none';
+                } else {
+                    // In expanded view, append new results
+                    appendResults(data.tweets, 'tweetResults');
+                    appendResults(data.media, 'mediaResults');
+                    
+                    // Hide expand buttons
+                    document.getElementById('expandTweets').style.display = 'none';
+                    document.getElementById('expandMedia').style.display = 'none';
+                }
+                
+                // Load Twitter embeds
+                if (window.twttr && window.twttr.widgets) {
+                    window.twttr.widgets.load();
+                }
+            } catch (error) {
+                console.error('Error performing search:', error);
+            }
+        }
+
+        function displayResults(results, containerId) {
+            const container = document.getElementById(containerId);
+            
+            if (results.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">No results found</p>';
+                return;
+            }
+            
+            container.innerHTML = ''; // Clear container
+            appendResults(results, containerId);
+        }
+
+        function appendResults(results, containerId) {
+            const container = document.getElementById(containerId);
+            
+            results.forEach(result => {
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'bg-white rounded-lg p-4 shadow tweet-container mb-4';
+                
+                // Add similarity score and text
+                const scoreDiv = document.createElement('div');
+                scoreDiv.className = 'text-sm text-gray-500 mb-2';
+                scoreDiv.textContent = `Similarity: ${(result.similarity * 100).toFixed(1)}%`;
+                resultDiv.appendChild(scoreDiv);
+                
+                // Add tweet text as fallback
+                const textDiv = document.createElement('div');
+                textDiv.className = 'text-gray-700 mb-2 line-clamp-3';
+                textDiv.textContent = result.text;
+                resultDiv.appendChild(textDiv);
+                
+                // Add tweet link
+                const linkDiv = document.createElement('div');
+                linkDiv.className = 'text-sm text-blue-500 mb-4';
+                linkDiv.innerHTML = `<a href="${result.tweet_url}" target="_blank" rel="noopener">View on Twitter →</a>`;
+                resultDiv.appendChild(linkDiv);
+                
+                // Add tweet embed
+                const tweetContainer = document.createElement('div');
+                tweetContainer.className = 'tweet-embed';
+                tweetContainer.innerHTML = `<blockquote class="twitter-tweet" data-dnt="true"><a href="${result.tweet_url}"></a></blockquote>`;
+                resultDiv.appendChild(tweetContainer);
+                
+                // If it's a media tweet, show the image description
+                if (result.image_desc) {
+                    const descDiv = document.createElement('div');
+                    descDiv.className = 'text-sm text-gray-600 mt-2 italic line-clamp-2';
+                    descDiv.textContent = `Image description: ${result.image_desc}`;
+                    resultDiv.appendChild(descDiv);
+                }
+                
+                container.appendChild(resultDiv);
+            });
+        }
+
+        // Handle enter key in search input
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                performSearch(false);
+            }
+        });
+    </script>
+</body>
+</html> 
