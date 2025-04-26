@@ -45,7 +45,9 @@ def setup_database(dimension: int = 768):
                 type TEXT,
                 alt_text TEXT,
                 image_desc TEXT,
-                embedding vector({dimension}),
+                joint_embedding vector({dimension}),
+                image_embedding vector({dimension}),
+                extr_text TEXT,
                 PRIMARY KEY (tweet_id, media_url)
             );
         """)

@@ -4,7 +4,7 @@ from transformers import AutoTokenizer, AutoModel, AutoImageProcessor
 from PIL import Image
 import requests
 from io import BytesIO
-from typing import Union, List
+from typing import Union, List, Tuple
 
 # Using Nomic models
 TEXT_MODEL_NAME = "nomic-ai/nomic-embed-text-v1.5"
@@ -55,8 +55,21 @@ def get_text_embedding(texts: Union[str, List[str]], task_prefix: str = "search_
     
     return embeddings
 
-def get_image_embedding(image_url: str, description: str = None) -> torch.Tensor:
-    """Generate image embedding using Nomic's vision model"""
+def get_image_embedding(image_url: str, description: str = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Generate image embedding and joint embedding (if description provided) using Nomic models.
+    
+    Args:
+        image_url (str): URL of the image.
+        description (str, optional): Text description associated with the image.
+        
+    Returns:
+        tuple: (joint_embedding, image_embedding)
+               - image_embedding: The raw embedding of the image.
+               - joint_embedding: The averaged embedding of image + description text.
+                 If no description is provided, this will be the same as image_embedding.
+    """
+    # Initialize models (consider initializing these once outside the function for efficiency)
     processor = AutoImageProcessor.from_pretrained(VISION_MODEL_NAME)
     vision_model = AutoModel.from_pretrained(VISION_MODEL_NAME, trust_remote_code=True).to(DEVICE)
     vision_model.eval()
@@ -72,17 +85,27 @@ def get_image_embedding(image_url: str, description: str = None) -> torch.Tensor
         inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
         
         img_emb = vision_model(**inputs).last_hidden_state
+        # Extract the embedding (e.g., CLS token or mean pool) - Nomic uses CLS [:, 0]
         image_features = F.normalize(img_emb[:, 0], p=2, dim=1)
+        image_embedding = image_features.squeeze(0) # Remove batch dim for single image
         
-        # If description is provided, process it with text model
+        # Initialize joint embedding as image embedding initially
+        joint_embedding = image_embedding 
+        
+        # If description is provided, process it and create joint embedding
         if description:
-            text_features = get_text_embedding(description)[0]  # Get first (only) embedding
+            # Use get_text_embedding which handles prefixing, pooling, normalization
+            # Assume get_text_embedding returns shape [1, dim] for single text
+            text_features = get_text_embedding(description, task_prefix="search_document")[0] # Squeeze batch dim
             
-            # Combine image and text features
-            joint_features = (image_features + text_features.unsqueeze(0)) / 2
-            return F.normalize(joint_features, p=2, dim=1)
+            # Combine image and text features by averaging
+            # Ensure both are on the same device and have compatible shapes if needed
+            # Squeeze might be needed depending on get_text_embedding output shape
+            joint_features_avg = (image_embedding + text_features) / 2.0 
+            joint_embedding = F.normalize(joint_features_avg, p=2, dim=0) # Normalize the averaged vector
         
-        return image_features
+        # Return both embeddings
+        return joint_embedding, image_embedding
 
 def get_embeddings_for_tweet(tweet_text: Union[str, List[str]]) -> torch.Tensor:
     """Generate embedding for tweet text(s)"""
@@ -95,5 +118,9 @@ def get_query_embedding(query: Union[str, List[str]]) -> torch.Tensor:
 def get_embeddings_for_media(image_url: str, description: str) -> torch.Tensor:
     """Generate joint embedding for media (image + description)"""
     # Add type prefix to description
-    prefixed_description = f"image: {description}"
-    return get_image_embedding(image_url, prefixed_description) 
+    # This function might now be obsolete or needs rethinking 
+    # as get_image_embedding handles the joint logic and returns both.
+    # Keeping it for now, but it only returns the JOINT embedding.
+    prefixed_description = f"search_document: {description}" # Use standard prefix
+    joint_emb, _ = get_image_embedding(image_url, prefixed_description)
+    return joint_emb 
