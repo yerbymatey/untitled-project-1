@@ -1,161 +1,88 @@
 # Untitled Project 1
 
-A social media content search engine with AI-powered analysis capabilities. This project enables searching tweets and media using vector embeddings, generating image descriptions with vision-language models, and analyzing content with semantic search.
+a scrappy social-media content search engine with an ai twist. yes, this is a mild resurrection of briend, but with a complete rewrite. you can pull in tweets + images, vector-search them, auto-resize/encode with one command, and spin up a little flask ui if you want. i have Plans, none that'll be implemented quickly but this is more just to have yall along for the ride
 
-## Features
+## what’s inside
 
-- **Vector Search**: Search tweets and images using semantic similarity
-- **Image Understanding**: Automatically generate descriptions for images using DeepSeek VL
-- **Web Interface**: Simple Flask-based UI for searching content
-- **Command Line Tools**: Scripts for batch processing and content analysis
-- **GPU Acceleration**: Optimized image processing with Metal GPU support on macOS
+- **all-in-one wrapper**  
+  just run `python run_pipeline.py` to:  
+  1. grab/refresh creds & headers  
+  2. pull new content  
+  3. generate embeddings + image descriptions  
+  4. resize & preprocess media  
+  5. index everything for search  
 
-## Installation
+  > on first run you might need to manually kick off the auth grab:  
+  > ```bash
+  > python scripts/get_headers.py
+  > ```
 
-### Prerequisites
+- **vector search**  
+  cosine sims over stored embeddings (no pgvector needed).  
+  peek at `scripts/search_embeddings.py` for full deets.
 
-- Python 3.8+ (Python 3.11 recommended)
-- PostgreSQL with pgvector extension
-- DeepSeek VL model (optional, for image description)
-- Metal-compatible GPU (for accelerated image processing on macOS)
+- **web ui (optional)**  
+  tiny flask app to poke around your data in the browser.
 
-### Setup
+## quick start
 
-1. Clone the repository:
+1. clone + cd in  
    ```bash
    git clone https://github.com/yerbymatey/untitled-project-1.git
    cd untitled-project-1
    ```
 
-2. Install the base package:
+2. install deps  
    ```bash
    pip install -e .
    ```
 
-3. Install DeepSeek VL dependencies (optional, for image understanding):
+3. tweak your API creds in `utils/config.py` (or export as env vars)
+
+4. fire up the pipeline  
    ```bash
-   pip install -r requirements-dsvl.txt
+   python run_pipeline.py
    ```
 
-4. Configure the database:
+5. (optional) search right from the CLI:  
    ```bash
-   # Update database connection in utils/config.py if necessary
-   python -m db.schema  # Sets up the database schema
+   python scripts/search_cli.py "rf hacking" --limit 5
    ```
 
-## Usage
-
-### Importing Social Media Content
-
-1. Configure API credentials in `utils/config.py`
-2. Run the scraper:
+6. (optional) launch the web ui:  
    ```bash
-   python -m scripts.run_scraper
+   python app.py
+   # open http://localhost:5000
    ```
 
-### Generating Image Embeddings and Descriptions
+## repo layout
 
-```bash
-# Generate embeddings for imported content
-python -m scripts.encode_embeddings
-
-# Generate image descriptions with DeepSeek VL (if installed)
-python -m scripts.ds_vl
+```
+.
+├── run_pipeline.py          # main wrapper for everything
+├── app.py                   # flask web server
+├── pipelines/               # data pipelines (scrape → encode → index)
+├── scripts/
+│   ├── get_headers.py       # grab or refresh API tokens/headers
+│   ├── run_scraper.py       # import tweets & media
+│   ├── encode_embeddings.py # embed content
+│   ├── search_cli.py        # CLI search interface
+│   └── search_embeddings.py # search logic
+├── utils/
+│   ├── config.py            # db & api settings
+│   ├── embedding_utils.py   # embedding helpers
+│   └── process_images.py    # resize + preprocess images
+└── db/
+    └── schema.py            # schema & session setup
 ```
 
-### Searching Content
+## notes & caveats
 
-#### Command Line Search
+- **token refresh** / headers grab is built into `run_pipeline.py` but you can still run `get_headers.py` on its own if something goes sideways.  
+- **advanced usage** (custom scrapes, one-off scripts, special image tricks) is all wrapped up in `run_pipeline.py` now—no need to juggle dozens of commands.
+- **model usage** i'm using deepseek-vl-7b for first pass semantic descriptions for images but you could just use another one. nomic-embed-vision-v1.5 for image embeddings but actually moving away from that and using interleaved img desc text + raw img tensor smoothie as a placeholder
+- **extra notes** some feats might still be artifacts of other runs i've tried--like analyzing tweets with gpt4o along with the text and image produces an explainer-source text paired doc you can embed for a bit more nuance in yr searches but by and large it's fine without it so it's not been in usage lately
 
-```bash
-# Search for tweets and media containing "climate change"
-python -m scripts.search_cli "climate change"
+## contributing
 
-# Search only for tweets
-python -m scripts.search_cli "climate change" --type tweets
-
-# Search only for media
-python -m scripts.search_cli "climate change" --type media
-
-# Limit results
-python -m scripts.search_cli "climate change" --limit 10
-```
-
-#### Web Interface
-
-```bash
-# Start the web server
-python -m app
-
-# Then open http://localhost:5000 in your browser
-```
-
-## Advanced Usage
-
-### Image Processing
-
-The project includes optimized image processing for macOS using Metal:
-
-```bash
-# Resize an image using GPU acceleration
-python -m utils.process_images input.jpg output.jpg --width 512 --height 512
-```
-
-### Analyze Tweets with GPT-4o
-
-```bash
-# Analyze recent tweets
-python -m scripts.analyze_tweets_gpt4o --limit 10
-```
-
-## Project Structure
-
-- `app.py` - Flask web application
-- `bookmarks/` - Social media scraping and parsing
-- `db/` - Database schema and session management
-- `pipelines/` - Data processing pipelines
-- `scripts/` - Command-line utilities
-  - `search_cli.py` - Command-line search interface
-  - `ds_vl.py` - DeepSeek VL image description generator
-  - `encode_embeddings.py` - Generate embeddings for content
-- `utils/` - Utility functions
-  - `embedding_utils.py` - Vector embedding generation
-  - `process_images.py` - GPU-accelerated image processing
-  - `vl_utils.py` - Vision-language model utilities
-
-## Technical Considerations
-
-### Vector Search
-
-This project uses the pgvector extension for PostgreSQL to enable efficient similarity searches. Embeddings are generated using the Nomic Embed models for both text and images:
-
-- Text embeddings: `nomic-ai/nomic-embed-text-v1.5`
-- Vision embeddings: `nomic-ai/nomic-embed-vision-v1.5`
-
-### Image Processing
-
-On macOS, the system uses Metal for GPU-accelerated image processing. The implementation includes multiple fallback methods:
-
-1. Metal Performance Shaders (primary method)
-2. Core Image (fallback)
-3. NumPy/SciPy (CPU fallback)
-
-### DeepSeek VL Integration
-
-The DeepSeek Vision-Language model requires specific dependencies and GPU resources. The model is used to generate semantic descriptions of images, enhancing the search capabilities.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Caveats and Limitations
-
-- **API Rate Limits**: Social media APIs may impose rate limits that affect data collection
-- **GPU Requirements**: DeepSeek VL model works best with GPU acceleration
-- **PostgreSQL Requirements**: Requires pgvector extension for vector similarity search
-- **Image Processing**: Metal acceleration only works on macOS with compatible GPUs
-- **Model Size**: DeepSeek VL model requires significant RAM (16GB+) for optimal performance
+feel free to PR, riff on it, or just grab what you need. MIT license 👍
