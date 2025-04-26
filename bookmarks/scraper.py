@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 import requests
 from utils.config import API_URL, API_HEADERS, API_FEATURES, BATCH_SIZE, RATE_LIMIT_DELAY, MAX_EMPTY_PAGES
 from utils.logger import setup_logger
+from db.session import get_db_session
 
 logger = setup_logger(__name__)
 
@@ -207,6 +208,19 @@ class TwitterBookmarkScraper:
             "url": f"https://x.com/{user.get('screen_name')}/status/{entry['entryId'].split('-')[1]}"
         }
 
+    def _check_if_tweet_exists(self, tweet_id: str) -> bool:
+        """Check if a tweet with the given ID exists in the database."""
+        try:
+            with get_db_session() as session:
+                session.execute("SELECT 1 FROM tweets WHERE id = %s LIMIT 1", (tweet_id,))
+                exists = session.fetchone() is not None
+                if exists:
+                    logger.info(f"Tweet ID {tweet_id} already exists in the database.")
+                return exists
+        except Exception as e:
+            logger.error(f"Database error checking tweet {tweet_id}: {e}")
+            return False # Assume not exists on error to avoid stopping prematurely
+
     def scrape_all_bookmarks(self) -> List[Dict]:
         """Fetch all bookmarks and return as a list of tweet data"""
         cursor = None
@@ -239,6 +253,15 @@ class TwitterBookmarkScraper:
                 else:
                     empty_pages_count = 0
 
+                    # --- Check if first tweet on page already exists ---
+                    first_entry_id_raw = tweet_entries[0].get("entryId")
+                    if first_entry_id_raw and first_entry_id_raw.startswith("tweet-"):
+                        first_tweet_id = first_entry_id_raw.split("-")[1]
+                        if self._check_if_tweet_exists(first_tweet_id):
+                            logger.info("First tweet on page already exists. Stopping bookmark fetch.")
+                            break # Stop pagination
+                    # -------------------------------------------------
+
                 # Process tweets from this page
                 for entry in tweet_entries:
                     try:
@@ -265,4 +288,4 @@ class TwitterBookmarkScraper:
                 break
 
         logger.info(f"Bookmark fetch complete! Total tweets fetched: {len(all_tweets)}")
-        return all_tweets 
+        return all_tweets
