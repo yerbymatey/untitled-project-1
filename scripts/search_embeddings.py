@@ -92,11 +92,33 @@ def search_tweets(query: str, limit: int = 10) -> List[Dict]:
         
         with get_db_session() as session:
             # Get all tweet embeddings - cast vector to text then parse
-            session.execute("""
-                SELECT t.id, t.text, t.created_at, t.embedding::text as embedding_array
+            # Also LEFT JOIN to get associated media info (picking one media item per tweet)
+            # Using ROW_NUMBER() for compatibility and clarity
+            query = """
+            WITH RankedTweets AS (
+                SELECT
+                    t.id,
+                    t.text,
+                    t.created_at,
+                    t.embedding::text as embedding_array,
+                    m.media_url,
+                    m.image_desc,
+                    ROW_NUMBER() OVER(PARTITION BY t.id ORDER BY m.media_url NULLS LAST) as rn -- Pick one media per tweet, handle NULLs
                 FROM tweets t
+                LEFT JOIN media m ON t.id = m.tweet_id AND m.type = 'photo'
                 WHERE t.embedding IS NOT NULL
-            """)
+            )
+            SELECT
+                id,
+                text,
+                created_at,
+                embedding_array,
+                media_url,
+                image_desc
+            FROM RankedTweets
+            WHERE rn = 1;
+            """
+            session.execute(query)
             results = session.fetchall()
             
             if not results:
@@ -114,7 +136,9 @@ def search_tweets(query: str, limit: int = 10) -> List[Dict]:
                     tweet_data.append({
                         'id': r['id'],
                         'text': r['text'],
-                        'created_at': r['created_at']
+                        'created_at': r['created_at'],
+                        'media_url': r['media_url'],
+                        'image_desc': r['image_desc']
                     })
                 except Exception as e:
                     print(f"Error parsing vector for tweet {r['id']}: {e}")

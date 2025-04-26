@@ -7,6 +7,8 @@ from io import BytesIO
 from tqdm import tqdm
 import argparse
 import os
+import logging
+from collections import defaultdict
 
 from db.session import get_db_session
 from utils.embedding_utils import (
@@ -28,6 +30,60 @@ text_model.eval()
 vision_processor = AutoImageProcessor.from_pretrained(VISION_MODEL_NAME)
 vision_model = AutoModel.from_pretrained(VISION_MODEL_NAME, trust_remote_code=True).to(DEVICE)
 vision_model.eval()
+
+# Setup logger
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# TODO: Implement a more robust retry mechanism, potentially persisting retry state across runs.
+MAX_RETRIES = 5
+
+def process_items_with_retries(items, item_type, process_func, max_retries=MAX_RETRIES):
+    """Processes items using process_func, with retries on failure."""
+    if not items:
+        return [], []
+
+    items_to_process = list(items) # Make a mutable copy
+    successful_items = []
+    permanently_failed_items = []
+    retry_counts = defaultdict(int)
+    current_pass = 0
+
+    while items_to_process and current_pass <= max_retries:
+        next_retry_items = []
+        logger.info(f"Processing pass {current_pass + 1}/{max_retries + 1} for {len(items_to_process)} {item_type} items...")
+        
+        progress_desc = f"Pass {current_pass + 1} - {item_type.capitalize()}"
+        for item in tqdm(items_to_process, desc=progress_desc):
+            item_id = item['id'] if item_type == 'tweet' else (item['tweet_id'], item['media_url'])
+            
+            try:
+                embedding = process_func(item)
+                item_copy = item.copy()
+                item_copy['embedding'] = embedding
+                successful_items.append(item_copy)
+                # logger.debug(f"Successfully processed {item_type} {item_id}")
+            except Exception as e:
+                retry_counts[item_id] += 1
+                logger.warning(f"Attempt {retry_counts[item_id]}/{max_retries} failed for {item_type} {item_id}: {e}")
+                if retry_counts[item_id] < max_retries:
+                    next_retry_items.append(item)
+                else:
+                    logger.error(f"{item_type.capitalize()} {item_id} failed after {max_retries} retries.")
+                    permanently_failed_items.append(item)
+
+        items_to_process = next_retry_items
+        current_pass += 1
+
+    # Any items left in items_to_process failed the last attempt but didn't reach max retries
+    # if current_pass reached max_retries + 1. Treat them as failed for now.
+    if items_to_process:
+         for item in items_to_process:
+            item_id = item['id'] if item_type == 'tweet' else (item['tweet_id'], item['media_url'])
+            logger.error(f"{item_type.capitalize()} {item_id} failed after {retry_counts[item_id]} attempts (max was {max_retries}).")
+            permanently_failed_items.append(item)
+
+    return successful_items, permanently_failed_items
 
 def get_total_counts():
     """Get total counts of items to process"""
@@ -118,132 +174,199 @@ def format_vector_for_postgres(vector):
     # Format as Postgres array string
     return f"[{','.join(str(x) for x in vector_array)}]"
 
-def update_tweet_embeddings(tweet_ids, embeddings):
-    """Update tweet embeddings in database"""
+def update_tweet_embeddings(successful_tweet_items):
+    """Update tweet embeddings in database from successfully processed items."""
+    if not successful_tweet_items:
+        return 0
+        
     with get_db_session() as session:
-        for tweet_id, embedding in zip(tweet_ids, embeddings):
-            vector_str = format_vector_for_postgres(embedding)
-            query = """
-                UPDATE tweets 
-                SET embedding = %s::vector
-                WHERE id = %s
-            """
-            session.execute(query, (vector_str, tweet_id))
-        session.commit()
+        update_values = []
+        for item in successful_tweet_items:
+            vector_str = format_vector_for_postgres(item['embedding'])
+            update_values.append((vector_str, item['id']))
+            
+        if update_values:
+            from psycopg2.extras import execute_values
+            execute_values(
+                session.cursor, # Pass cursor directly
+                """UPDATE tweets SET embedding = v.embedding::vector
+                   FROM (VALUES %s) AS v(embedding, id)
+                   WHERE tweets.id = v.id""",
+                update_values
+            )
+            session.commit()
+            logger.info(f"Bulk updated {len(update_values)} tweet embeddings.")
+            return len(update_values)
+    return 0
 
-def update_media_embeddings(tweet_ids, media_urls, embeddings):
-    """Update media embeddings in database"""
+def update_media_embeddings(successful_media_items):
+    """Update media embeddings in database from successfully processed items."""
+    if not successful_media_items:
+        return 0
+
     with get_db_session() as session:
-        for tweet_id, media_url, embedding in zip(tweet_ids, media_urls, embeddings):
-            vector_str = format_vector_for_postgres(embedding)
-            query = """
-                UPDATE media 
-                SET embedding = %s::vector
-                WHERE tweet_id = %s AND media_url = %s
-            """
-            session.execute(query, (vector_str, tweet_id, media_url))
-        session.commit()
+        update_values = []
+        for item in successful_media_items:
+            vector_str = format_vector_for_postgres(item['embedding'])
+            update_values.append((vector_str, item['tweet_id'], item['media_url']))
 
-def process_batch(batch_size=100, offset=0):
-    """Process a batch of items for embeddings"""
-    # Get items to process
-    items = get_unprocessed_items(offset, batch_size)
-    if not items:
-        print("No items found without embeddings")
-        return
-    
-    print(f"Processing {len(items)} items for embeddings...")
-    
-    # Separate items by type
-    tweet_items = [item for item in items if item['type'] == 'tweet']
-    media_items = [item for item in items if item['type'] == 'media']
-    
-    # Process tweets
-    if tweet_items:
-        tweet_ids = []
-        tweet_embeddings = []
+        if update_values:
+            from psycopg2.extras import execute_values
+            execute_values(
+                session.cursor, # Pass cursor directly
+                """UPDATE media SET embedding = v.embedding::vector
+                   FROM (VALUES %s) AS v(embedding, tweet_id, media_url)
+                   WHERE media.tweet_id = v.tweet_id AND media.media_url = v.media_url""",
+                update_values
+            )
+            session.commit()
+            logger.info(f"Bulk updated {len(update_values)} media embeddings.")
+            return len(update_values)
+    return 0
+
+def fetch_item_data(tweet_ids=None, media_identifiers=None):
+    """Fetch full item data for given tweet IDs or media identifiers."""
+    items = []
+    with get_db_session() as session:
+        if tweet_ids:
+            # Fetch tweet data
+            tweet_query = """
+            SELECT id, text
+            FROM tweets
+            WHERE id = ANY(%s)
+            """
+            session.execute(tweet_query, (list(tweet_ids),))
+            tweets_result = session.fetchall()
+            for tweet in tweets_result:
+                items.append({
+                    'id': tweet['id'],
+                    'text': tweet['text'],
+                    'type': 'tweet'
+                })
         
-        for item in tqdm(tweet_items, desc="Processing tweets"):
-            try:
-                embedding = get_text_embedding(item['text'])
-                tweet_embeddings.append(embedding)
-                tweet_ids.append(item['id'])
-            except Exception as e:
-                print(f"Error processing tweet {item['id']}: {e}")
-                continue
-        
-        if tweet_embeddings:
-            update_tweet_embeddings(tweet_ids, tweet_embeddings)
-            print(f"Updated {len(tweet_embeddings)} tweet embeddings")
-    
-    # Process media
-    if media_items:
-        tweet_ids = []
-        media_urls = []
-        media_embeddings = []
-        
-        for item in tqdm(media_items, desc="Processing media"):
-            try:
-                embedding = get_image_embedding(item['media_url'], item['image_desc'])
-                media_embeddings.append(embedding)
-                tweet_ids.append(item['id'])
-                media_urls.append(item['media_url'])
-            except Exception as e:
-                print(f"Error processing media for tweet {item['id']}: {e}")
-                continue
-        
-        if media_embeddings:
-            update_media_embeddings(tweet_ids, media_urls, media_embeddings)
-            print(f"Updated {len(media_embeddings)} media embeddings")
+        if media_identifiers:
+            # Fetch media data
+            # media_identifiers is a list of tuples: [(tweet_id, media_url), ...]
+            media_query = """
+            SELECT m.tweet_id, t.text, m.media_url, m.image_desc
+            FROM media m
+            JOIN tweets t ON t.id = m.tweet_id
+            WHERE (m.tweet_id, m.media_url) IN %s
+            """
+            # psycopg2 expects a tuple of tuples for IN operator with multiple columns
+            session.execute(media_query, (tuple(media_identifiers),))
+            media_result = session.fetchall()
+            for item in media_result:
+                 items.append({
+                    'tweet_id': item['tweet_id'],
+                    'text': item['text'], # Include tweet text for context if needed by embedding func
+                    'media_url': item['media_url'],
+                    'image_desc': item['image_desc'],
+                    'type': 'media'
+                })
+    return items
 
 def main():
     parser = argparse.ArgumentParser(description='Process tweets and media with embeddings')
     parser.add_argument('--batch-size', type=int, default=100,
                         help='Number of items to process per batch (default: 100)')
-    parser.add_argument('--small-batch', action='store_true',
-                        help='Process just 5 items (for testing)')
     parser.add_argument('--force-cpu', action='store_true',
                         help='Force using CPU even if GPU is available')
     
     args = parser.parse_args()
     
     if args.force_cpu:
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        print("Forcing CPU usage")
-    
-    print(f"Using device: {DEVICE}")
-    
-    batch_size = 5 if args.small_batch else args.batch_size
-    if args.small_batch:
-        print(f"Processing small test batch of {batch_size} items")
-    
-    # Get total counts
-    tweets_total, media_total = get_total_counts()
-    print(f"Total items to process: {tweets_total} tweets, {media_total} media items")
-    
-    if tweets_total == 0 and media_total == 0:
-        print("No items to process!")
+        global DEVICE
+        DEVICE = 'cpu'
+        # Reload models onto CPU if needed (adjust based on your setup)
+        # text_model.to(DEVICE)
+        # vision_model.to(DEVICE)
+        logger.info("Forcing CPU usage")
+    else:
+        logger.info(f"Using device: {DEVICE}")
+
+    batch_size = args.batch_size
+    total_processed_tweets = 0
+    total_failed_tweets = 0
+    total_processed_media = 0
+    total_failed_media = 0
+
+    # --- Fetch all IDs/Identifiers needing processing ---    
+    unprocessed_tweet_ids = []
+    unprocessed_media_identifiers = [] 
+    with get_db_session() as session:
+        logger.info("Fetching unprocessed tweet IDs...")
+        session.execute("SELECT id FROM tweets WHERE embedding IS NULL")
+        unprocessed_tweet_ids = [row['id'] for row in session.fetchall()]
+        logger.info(f"Found {len(unprocessed_tweet_ids)} tweets needing embeddings.")
+
+        logger.info("Fetching unprocessed media identifiers...")
+        session.execute("""
+            SELECT tweet_id, media_url 
+            FROM media 
+            WHERE type = 'photo' 
+            AND embedding IS NULL 
+            AND image_desc IS NOT NULL 
+            AND image_desc != ''
+        """)
+        unprocessed_media_identifiers = [(row['tweet_id'], row['media_url']) for row in session.fetchall()]
+        logger.info(f"Found {len(unprocessed_media_identifiers)} media items needing embeddings.")
+
+    if not unprocessed_tweet_ids and not unprocessed_media_identifiers:
+        logger.info("No items require embedding processing.")
         return
-    
-    offset = 0
-    while True:
-        process_batch(batch_size, offset)
-        offset += batch_size
+
+    # --- Process Tweets in Batches ---    
+    logger.info(f"Processing {len(unprocessed_tweet_ids)} tweets in batches of {batch_size}...")
+    for i in range(0, len(unprocessed_tweet_ids), batch_size):
+        batch_ids = unprocessed_tweet_ids[i:i + batch_size]
+        logger.info(f"Fetching data for tweet batch {i // batch_size + 1}...")
+        tweet_batch_data = fetch_item_data(tweet_ids=batch_ids)
         
-        # Check if there are any remaining items without embeddings
-        tweets_remaining, media_remaining = get_total_counts()
-        
-        if tweets_remaining == 0 and media_remaining == 0:
-            print("All items have been processed!")
-            break
+        if tweet_batch_data:
+            logger.info(f"Processing tweet batch {i // batch_size + 1} with {len(tweet_batch_data)} items...")
+            successful_tweets, failed_tweets = process_items_with_retries(
+                tweet_batch_data, 
+                'tweet',
+                lambda item: get_text_embedding(item['text'])
+            )
+            # Update DB
+            processed_count = update_tweet_embeddings(successful_tweets)
+            total_processed_tweets += processed_count
+            total_failed_tweets += len(failed_tweets)
+            if failed_tweets:
+                 logger.error(f"Failed to process {len(failed_tweets)} tweets in batch {i // batch_size + 1} after retries.")
         else:
-            print(f"Remaining items to process: {tweets_remaining} tweets, {media_remaining} media items")
-            
-            # Calculate progress percentages safely
-            tweet_progress = 100.0 if tweets_total == 0 else ((tweets_total - tweets_remaining) / tweets_total * 100)
-            media_progress = 100.0 if media_total == 0 else ((media_total - media_remaining) / media_total * 100)
-            
-            print(f"Progress: {tweet_progress:.1f}% tweets, {media_progress:.1f}% media")
+            logger.warning(f"No data fetched for tweet IDs: {batch_ids}")
+
+    # --- Process Media in Batches ---    
+    logger.info(f"Processing {len(unprocessed_media_identifiers)} media items in batches of {batch_size}...")
+    for i in range(0, len(unprocessed_media_identifiers), batch_size):
+        batch_identifiers = unprocessed_media_identifiers[i:i + batch_size]
+        logger.info(f"Fetching data for media batch {i // batch_size + 1}...")
+        media_batch_data = fetch_item_data(media_identifiers=batch_identifiers)
+
+        if media_batch_data:
+            logger.info(f"Processing media batch {i // batch_size + 1} with {len(media_batch_data)} items...")
+            successful_media, failed_media = process_items_with_retries(
+                media_batch_data, 
+                'media',
+                lambda item: get_image_embedding(item['media_url'], item['image_desc'])
+            )
+            # Update DB
+            processed_count = update_media_embeddings(successful_media)
+            total_processed_media += processed_count
+            total_failed_media += len(failed_media)
+            if failed_media:
+                 logger.error(f"Failed to process {len(failed_media)} media items in batch {i // batch_size + 1} after retries.")
+        else:
+            logger.warning(f"No data fetched for media identifiers: {batch_identifiers}")
+
+    # --- Final Summary ---    
+    logger.info("--- Embedding Generation Summary ---")
+    logger.info(f"Successfully processed: {total_processed_tweets} tweets, {total_processed_media} media items.")
+    logger.info(f"Failed after retries: {total_failed_tweets} tweets, {total_failed_media} media items.")
+    logger.info("--- Embedding Generation Complete ---")
 
 if __name__ == "__main__":
     main() 
