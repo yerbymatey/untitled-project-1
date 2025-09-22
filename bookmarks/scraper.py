@@ -13,7 +13,62 @@ logger = setup_logger(__name__)
 class TwitterBookmarkScraper:
     def __init__(self):
         self.features = API_FEATURES.copy()
-    
+
+    def _parse_user(self, user_result: Dict) -> Dict:
+        """Normalize user metadata across legacy and new API structures."""
+        empty = {
+            "id": None,
+            "name": None,
+            "screen_name": None,
+            "verified": False,
+            "followers_count": 0,
+            "following_count": 0,
+            "description": "",
+            "description_urls": []
+        }
+
+        if not user_result or not isinstance(user_result, dict):
+            return empty.copy()
+
+        core = user_result.get("core", {}) or {}
+        legacy = user_result.get("legacy", {}) or {}
+        verification = user_result.get("verification", {}) or {}
+
+        rest_id = user_result.get("rest_id") or legacy.get("id_str")
+        screen_name = core.get("screen_name") or legacy.get("screen_name")
+        name = core.get("name") or legacy.get("name")
+
+        verified = verification.get("verified")
+        if verified is None:
+            verified = legacy.get("verified", False)
+
+        followers = legacy.get("followers_count") or legacy.get("normal_followers_count") or 0
+        following = legacy.get("friends_count") or legacy.get("following_count") or 0
+        description = legacy.get("description") or ""
+
+        description_urls: List[Dict[str, Optional[str]]] = []
+        entities = legacy.get("entities", {}) or {}
+        desc_entities = entities.get("description", {}) or {}
+        for url_entity in desc_entities.get("urls", []) or []:
+            if not isinstance(url_entity, dict):
+                continue
+            resolved_url = url_entity.get("expanded_url") or url_entity.get("url")
+            if resolved_url:
+                description_urls.append({"url": resolved_url})
+
+        user_data = {
+            "id": rest_id,
+            "name": name,
+            "screen_name": screen_name,
+            "verified": bool(verified),
+            "followers_count": followers,
+            "following_count": following,
+            "description": description,
+            "description_urls": description_urls,
+        }
+
+        return user_data
+
     def fetch_bookmarks(self, cursor: Optional[str] = None) -> Optional[Dict]:
         """Fetch a page of bookmarks from the X/Twitter API"""
         variables = {
@@ -61,7 +116,8 @@ class TwitterBookmarkScraper:
         """Extract relevant tweet data from the API response"""
         tweet_result = entry["content"]["itemContent"]["tweet_results"]["result"]
         legacy = tweet_result["legacy"]
-        user = tweet_result["core"]["user_results"]["result"]["legacy"]
+        user_result = tweet_result.get("core", {}).get("user_results", {}).get("result", {}) or {}
+        user = self._parse_user(user_result)
         
         # Get full text without modifying newlines
         text = legacy.get("full_text", "")
@@ -103,16 +159,9 @@ class TwitterBookmarkScraper:
                 }
                 urls.append(url_item)
         
-        # Extract user description and related URLs if available
+        # Extract user description data from normalized payload
         user_description = user.get("description", "")
-        user_description_urls = []
-        
-        if "entities" in user and "description" in user["entities"] and "urls" in user["entities"]["description"]:
-            for url_entity in user["entities"]["description"]["urls"]:
-                url_item = {
-                    "url": url_entity.get("url")
-                }
-                user_description_urls.append(url_item)
+        user_description_urls = user.get("description_urls", [])
 
         # Extract quoted tweet data if available
         quoted_status = None
@@ -120,7 +169,8 @@ class TwitterBookmarkScraper:
             quoted_result = tweet_result["quoted_status_result"]["result"]
             if quoted_result.get("__typename") == "Tweet":
                 quoted_legacy = quoted_result.get("legacy", {})
-                quoted_user = quoted_result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {})
+                quoted_user_result = quoted_result.get("core", {}).get("user_results", {}).get("result", {}) or {}
+                quoted_user = self._parse_user(quoted_user_result)
                 
                 # Extract quoted tweet media
                 quoted_media_items = []
@@ -167,18 +217,10 @@ class TwitterBookmarkScraper:
                         "items": quoted_media_items,
                         "has_media": len(quoted_media_items) > 0
                     },
-                    "user": {
-                        "id": quoted_user.get("id_str"),
-                        "name": quoted_user.get("name"),
-                        "screen_name": quoted_user.get("screen_name"),
-                        "verified": quoted_user.get("verified", False),
-                        "followers_count": quoted_user.get("followers_count"),
-                        "following_count": quoted_user.get("friends_count"),
-                        "description": quoted_user.get("description")
-                    },
-                    "url": f"https://x.com/{quoted_user.get('screen_name')}/status/{quoted_legacy.get('id_str')}"
+                    "user": quoted_user,
+                    "url": f"https://x.com/{quoted_user.get('screen_name') or quoted_user.get('id')}/status/{quoted_legacy.get('id_str')}"
                 }
-        
+
         return {
             "id": entry["entryId"].split("-")[1],
             "text": cleaned_text,
@@ -195,17 +237,17 @@ class TwitterBookmarkScraper:
                 "has_media": len(media_items) > 0
             },
             "user": {
-                "id": user.get("id_str"),
+                "id": user.get("id"),
                 "name": user.get("name"),
                 "screen_name": user.get("screen_name"),
                 "verified": user.get("verified", False),
                 "followers_count": user.get("followers_count"),
-                "following_count": user.get("friends_count"),
+                "following_count": user.get("following_count"),
                 "description": user_description,
                 "description_urls": user_description_urls
             },
             "quoted_status": quoted_status,
-            "url": f"https://x.com/{user.get('screen_name')}/status/{entry['entryId'].split('-')[1]}"
+            "url": f"https://x.com/{user.get('screen_name') or user.get('id')}/status/{entry['entryId'].split('-')[1]}"
         }
 
     def _check_if_tweet_exists(self, tweet_id: str) -> bool:

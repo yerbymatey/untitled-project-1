@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -48,6 +49,36 @@ class BookmarkIngester:
         
         return self.hashtag_map
     
+    def _resolve_screen_name(self, user: Optional[Dict], fallback_url: Optional[str] = None) -> Optional[str]:
+        """Resolve a user's handle/screen_name from available metadata."""
+        if not user:
+            return None
+
+        handle = (
+            user.get('screen_name')
+            or user.get('handle')
+            or user.get('legacy', {}).get('screen_name')
+        )
+
+        if not handle:
+            # Try to parse from URLs like https://x.com/{handle}/status/...
+            candidate_sources = [fallback_url, user.get('url')]
+            for source in candidate_sources:
+                if not source:
+                    continue
+                match = re.search(r"https?://(?:x|twitter)\.com/([^/?]+)/", source)
+                if match:
+                    handle = match.group(1)
+                    break
+
+        if handle:
+            # Persist the resolved value back on the user dict so downstream consumers can rely on it
+            user.setdefault('screen_name', handle)
+        else:
+            logger.warning(f"Unable to resolve screen_name for user payload: {user.get('name', 'unknown user')}")
+
+        return handle
+
     def _insert_users(self, session, users: List[Dict]) -> None:
         """Insert or update users in batch"""
         if not users:
@@ -56,19 +87,18 @@ class BookmarkIngester:
         # Prepare user data with validation
         user_values = []
         for user in users:
-            # Use screen_name as the primary ID
-            user_id = user.get('screen_name')
+            handle = self._resolve_screen_name(user)
+            user_id = user.get('id') or handle
             if not user_id:
-                logger.warning(f"Skipping user with missing screen_name: {user.get('name', 'unknown')}")
                 continue
-                
+
             user_values.append((
-                user_id,  # Use screen_name as the ID
+                user_id,
                 user.get('name', ''),
-                user.get('verified', False),
-                user.get('followers_count', 0),
-                user.get('following_count', 0),
-                user.get('description', '')
+                bool(user.get('verified', False)),
+                user.get('followers_count', 0) or 0,
+                user.get('following_count', 0) or 0,
+                user.get('description', '') or ''
             ))
         
         if not user_values:
@@ -95,14 +125,16 @@ class BookmarkIngester:
         # Handle user description URLs
         url_values = []
         for user in users:
-            user_id = user.get('screen_name')
+            handle = self._resolve_screen_name(user)
+            user_id = user.get('id') or handle
             if not user_id:
                 continue
-                
+
             if user.get('description_urls'):
                 url_values.extend([
                     (user_id, url['url'])
                     for url in user['description_urls']
+                    if url.get('url')
                 ])
         
         if url_values:
@@ -117,10 +149,7 @@ class BookmarkIngester:
     
     def _extract_user_id(self, user: Dict) -> Optional[str]:
         """Extract and validate user ID from user data"""
-        user_id = user.get('screen_name')
-        if not user_id:
-            logger.warning(f"Skipping user with missing screen_name: {user.get('name', 'unknown')}")
-        return user_id
+        return self._resolve_screen_name(user)
 
     def _collect_users(self, bookmarks: List[Dict]) -> List[Dict]:
         """Collect and deduplicate users from bookmarks"""
@@ -128,14 +157,16 @@ class BookmarkIngester:
         for bookmark in bookmarks:
             # Add main tweet user
             user = bookmark['user']
-            user_id = self._extract_user_id(user)
+            handle = self._resolve_screen_name(user, bookmark.get('url'))
+            user_id = user.get('id') or handle
             if user_id:
                 user_map[user_id] = user
             
             # Add quoted tweet user if present
             if bookmark.get('quoted_status'):
                 quoted_user = bookmark['quoted_status']['user']
-                quoted_user_id = self._extract_user_id(quoted_user)
+                quoted_handle = self._resolve_screen_name(quoted_user, bookmark['quoted_status'].get('url'))
+                quoted_user_id = quoted_user.get('id') or quoted_handle
                 if quoted_user_id:
                     user_map[quoted_user_id] = quoted_user
         
@@ -151,8 +182,9 @@ class BookmarkIngester:
         }
         
         for tweet in tweets:
-            # Get user_id from screen_name
-            user_id = tweet['user'].get('screen_name')
+            # Get user_id from provided id or fallback handle
+            handle = self._resolve_screen_name(tweet['user'], tweet.get('url'))
+            user_id = tweet['user'].get('id') or handle
             if not user_id:
                 logger.warning(f"Skipping tweet {tweet.get('id', 'unknown')} with missing user screen_name")
                 continue
@@ -191,7 +223,8 @@ class BookmarkIngester:
                         tweet['id'],
                         media['media_url'],
                         media['type'],
-                        media.get('alt_text')
+                        media.get('alt_text'),
+                        None  # Placeholder for extr_text
                     ) for media in tweet['media']['items']
                 ])
         
@@ -269,11 +302,12 @@ class BookmarkIngester:
         if data['media_values']:
             session.execute_values(
                 """
-                INSERT INTO media (tweet_id, media_url, type, alt_text)
+                INSERT INTO media (tweet_id, media_url, type, alt_text, extr_text)
                 VALUES %s
                 ON CONFLICT (tweet_id, media_url) DO UPDATE SET
                     type = EXCLUDED.type,
                     alt_text = EXCLUDED.alt_text
+                    -- extr_text is only inserted initially, not updated here
                 """,
                 data['media_values']
             )

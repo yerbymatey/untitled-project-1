@@ -1,6 +1,8 @@
-from playwright.sync_api import sync_playwright
-import re
+import os
 from typing import Dict, Optional
+import re
+
+from playwright.sync_api import sync_playwright
 
 def format_env_value(value: str) -> str:
     """Format a value for .env file, handling special characters"""
@@ -10,28 +12,57 @@ def format_env_value(value: str) -> str:
     value = value.replace('"', '\\"')
     return value
 
-def generate_env_content(data: Dict[str, Optional[str]]) -> str:
-    """Generate .env file content from captured data"""
-    env_lines = []
-    
-    # Add auth token
+def generate_env_updates(data: Dict[str, Optional[str]]) -> Dict[str, str]:
+    """Build the values we want to persist to the .env file"""
+    updates: Dict[str, str] = {}
+
     if data['auth']:
         auth_token = data['auth'].replace("Bearer ", "")
-        env_lines.append(f'X_AUTH_TOKEN="{format_env_value(auth_token)}"')
-    
-    # Add cookie string
+        updates['X_AUTH_TOKEN'] = format_env_value(auth_token)
+
     if data['cookie']:
-        env_lines.append(f'X_COOKIE_STRING="{format_env_value(data["cookie"])}"')
-    
-    # Add CSRF token
+        updates['X_COOKIE_STRING'] = format_env_value(data['cookie'])
+
     if data['csrf']:
-        env_lines.append(f'X_CSRF_TOKEN="{format_env_value(data["csrf"])}"')
-    
-    # Add API ID
+        updates['X_CSRF_TOKEN'] = format_env_value(data['csrf'])
+
     if data['bookmarks_api_id']:
-        env_lines.append(f'BOOKMARKS_API_ID="{format_env_value(data["bookmarks_api_id"])}"')
-    
-    return '\n'.join(env_lines)
+        updates['BOOKMARKS_API_ID'] = format_env_value(data['bookmarks_api_id'])
+
+    return updates
+
+
+def merge_env_file(updates: Dict[str, str], filepath: str = ".env") -> None:
+    """Merge captured headers into the existing .env without dropping other variables"""
+    preserved_lines = []
+
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.rstrip("\n")
+                stripped = line.strip()
+
+                if not stripped or stripped.startswith("#"):
+                    preserved_lines.append(line)
+                    continue
+
+                if "=" not in stripped:
+                    preserved_lines.append(line)
+                    continue
+
+                key = stripped.split("=", 1)[0].strip()
+                if key in updates:
+                    # Skip old value; we'll append the refreshed one later
+                    continue
+
+                preserved_lines.append(line)
+
+    for key, value in updates.items():
+        preserved_lines.append(f'{key}="{value}"')
+
+    with open(filepath, "w", encoding="utf-8") as env_file:
+        env_file.write("\n".join(preserved_lines))
+        env_file.write("\n")
 
 def save_twitter_headers():
     with sync_playwright() as p:
@@ -93,13 +124,16 @@ def save_twitter_headers():
 
         # Generate and display .env content
         print("\n=== Generated .env Content ===")
-        env_content = generate_env_content(captured_data)
+        env_updates = generate_env_updates(captured_data)
+        env_content = '\n'.join(f'{key}="{value}"' for key, value in env_updates.items())
         print(env_content)
         
         # Save to .env file
-        print("\n4. Saving to .env file...")
-        with open(".env", "w") as f:
-            f.write(env_content)
+        if env_updates:
+            print("\n4. Saving to .env file...")
+            merge_env_file(env_updates)
+        else:
+            print("\n4. No new headers captured; existing .env left untouched.")
         
         print("\n=== Capture Summary ===")
         for key, value in captured_data.items():
@@ -109,7 +143,10 @@ def save_twitter_headers():
             else:
                 print(f"- {key}: {status}")
 
-        print("\n✓ Headers captured and saved to .env file")
+        if env_updates:
+            print("\n✓ Headers captured and saved to .env file")
+        else:
+            print("\n✓ Capture complete (no changes written)")
         browser.close()
 
 if __name__ == "__main__":

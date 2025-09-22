@@ -83,6 +83,11 @@ def main():
         action="store_true",
         help="Run the optional DeepSeek VL image description step (`python -m scripts.ds_vl`).",
     )
+    parser.add_argument(
+        "--skip-text-extraction",
+        action="store_true",
+        help="Skip the image text extraction step (`python -m scripts.extract_text_colnomic`).",
+    )
 
     args = parser.parse_args()
 
@@ -111,16 +116,15 @@ def main():
     else:
         logger.info("--- Skipping Data Scraper ---")
 
-    # Step 3: Generate Embeddings (Optional)
-    if not args.skip_embeddings:
-        logger.info("--- Running Embedding Generation ---")
-        if not run_command([python_executable, "-m", "scripts.encode_embeddings"]):
-            # Make this non-fatal? Depends on workflow. For now, let's make it fatal.
-            logger.error("Embedding generation failed. Aborting pipeline.")
+    # Step 3: Extract text from media (Optional)
+    if not args.skip_text_extraction:
+        logger.info("--- Running Image Text Extraction ---")
+        if not run_command([python_executable, "-m", "scripts.extract_text_colnomic"]):
+            logger.error("Image text extraction failed. Aborting pipeline.")
             sys.exit(1)
-        logger.info("--- Embedding Generation Finished ---")
+        logger.info("--- Image Text Extraction Finished ---")
     else:
-        logger.info("--- Skipping Embedding Generation ---")
+        logger.info("--- Skipping Image Text Extraction ---")
 
     # Step 4: Generate Image Descriptions (Optional)
     if args.run_ds_vl:
@@ -131,6 +135,17 @@ def main():
         logger.info("--- DeepSeek VL Image Description Finished ---")
     else:
         logger.info("--- Skipping DeepSeek VL Image Description ---")
+
+    # Step 5: Generate Embeddings (Optional)
+    if not args.skip_embeddings:
+        logger.info("--- Running Embedding Generation ---")
+        if not run_command([python_executable, "-m", "scripts.encode_embeddings"]):
+            # Make this non-fatal? Depends on workflow. For now, let's make it fatal.
+            logger.error("Embedding generation failed. Aborting pipeline.")
+            sys.exit(1)
+        logger.info("--- Embedding Generation Finished ---")
+    else:
+        logger.info("--- Skipping Embedding Generation ---")
 
     logger.info("Data pipeline execution completed.")
 

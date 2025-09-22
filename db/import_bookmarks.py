@@ -1,8 +1,10 @@
-import psycopg2
-import json
 import glob
+import json
 import os
+import re
 from datetime import datetime
+
+import psycopg2
 from psycopg2.extras import execute_values
 
 from dotenv import load_dotenv
@@ -17,6 +19,31 @@ DB_PARAMS = {
 }
 
 BATCH_SIZE = 1000
+
+
+def resolve_screen_name(user: dict, tweet_url: str | None = None) -> str | None:
+    """Resolve a stable handle value from stored bookmark payloads."""
+    if not user:
+        return None
+
+    handle = user.get("screen_name") or user.get("handle") or user.get("legacy", {}).get("screen_name")
+
+    if not handle:
+        candidate_sources = [tweet_url, user.get("url")]
+        for source in candidate_sources:
+            if not source:
+                continue
+            match = re.search(r"https?://(?:x|twitter)\.com/([^/?]+)/", source)
+            if match:
+                handle = match.group(1)
+                break
+
+    if handle:
+        user.setdefault("screen_name", handle)
+    else:
+        print(f"Skipping user with unresolved screen name: {user.get('name', 'unknown')}")
+
+    return handle
 
 def parse_twitter_date(date_str):
     """Convert Twitter date format to PostgreSQL timestamp format"""
@@ -64,22 +91,22 @@ def import_bookmarks_file(file_path):
                     continue
                 
                 # Use screen_name as the user ID
-                screen_name = user.get('screen_name')
-                if not screen_name:
-                    print(f"Skipping bookmark with missing screen name from user {user.get('name', 'unknown')}")
+                screen_name = resolve_screen_name(user, bookmark.get('url'))
+                user_id = user.get('id') or screen_name
+                if not user_id:
                     continue
-                
+
                 # Store user data
                 user_data = (
-                    screen_name,  # Use screen_name as ID
+                    user_id,
                     user.get('name', ''),
-                    user.get('verified', False),
-                    user.get('followers_count', 0),
-                    user.get('following_count', 0),
-                    user.get('description', '')
+                    bool(user.get('verified', False)),
+                    user.get('followers_count', 0) or 0,
+                    user.get('following_count', 0) or 0,
+                    user.get('description', '') or ''
                 )
                 users_data.append(user_data)
-                
+
                 # Skip tweets missing IDs
                 if not bookmark.get('id'):
                     print(f"Skipping tweet with missing ID from user {screen_name}")
@@ -93,7 +120,7 @@ def import_bookmarks_file(file_path):
                 # Store tweet data
                 tweet_data = (
                     bookmark['id'],
-                    screen_name,  # Use screen_name as user_id
+                    user_id,
                     bookmark.get('text', ''),
                     created_at,
                     bookmark.get('retweet_count', 0),
@@ -102,7 +129,7 @@ def import_bookmarks_file(file_path):
                     bookmark.get('quote_count', 0),
                     bookmark.get('is_quote_status', False),
                     quoted_status.get('id') if quoted_status else None,
-                    bookmark.get('url', ''),
+                    bookmark.get('url') or (f"https://x.com/{screen_name}/status/{bookmark['id']}" if screen_name else f"https://x.com/i/status/{bookmark['id']}"),
                     media.get('has_media', False) if media else False
                 )
                 tweets_data.append(tweet_data)

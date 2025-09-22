@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS media (
     media_url TEXT,
     type VARCHAR(50),
     alt_text TEXT,
+    extr_text TEXT,
     PRIMARY KEY (tweet_id, media_url)
 );
 

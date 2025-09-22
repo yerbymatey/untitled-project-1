@@ -83,10 +83,14 @@ def process_items_with_retries(items, item_type, process_func, max_retries=MAX_R
             except Exception as e:
                 retry_counts[item_id] += 1
                 logger.warning(f"Attempt {retry_counts[item_id]}/{max_retries} failed for {item_type} {item_id}: {e}")
-                if retry_counts[item_id] < max_retries:
+
+                # For deterministic data issues (e.g., missing text), don't bother retrying
+                is_retryable = not isinstance(e, ValueError)
+
+                if is_retryable and retry_counts[item_id] < max_retries:
                     next_retry_items.append(item)
                 else:
-                    logger.error(f"{item_type.capitalize()} {item_id} failed after {max_retries} retries.")
+                    logger.error(f"{item_type.capitalize()} {item_id} failed after {retry_counts[item_id]} attempts.")
                     permanently_failed_items.append(item)
 
         items_to_process = next_retry_items
@@ -141,7 +145,7 @@ def get_unprocessed_items(limit=100):
     """
     unprocessed_tweet_ids = []
     unprocessed_media_identifiers = []
-    
+
     with get_db_session() as session:
         # Get tweets without embeddings
         session.execute("""
@@ -194,7 +198,7 @@ def update_tweet_embeddings(successful_tweet_items):
             session.cursor,
             """UPDATE tweets SET embedding = v.embedding::vector
             FROM (VALUES %s) AS v(embedding, id)
-            WHERE tweets.id = v.id::bigint;""",
+            WHERE tweets.id = v.id;""",
             update_values
         )
         count = len(update_values)
@@ -248,7 +252,7 @@ def update_media_embeddings(successful_media_items):
                    joint_embedding = v.joint_embedding::vector,
                    image_embedding = v.image_embedding::vector
                FROM (VALUES %s) AS v(joint_embedding, image_embedding, tweet_id, media_url)
-               WHERE media.tweet_id::bigint = v.tweet_id::bigint 
+               WHERE media.tweet_id = v.tweet_id
                AND media.media_url = v.media_url;""",
             update_values
         )
@@ -324,7 +328,7 @@ def main():
     total_failed_media = 0
 
     # --- Fetch all IDs/Identifiers needing processing ---    
-    unprocessed_tweet_ids, unprocessed_media_identifiers = get_unprocessed_items()
+    unprocessed_tweet_ids, unprocessed_media_identifiers = get_unprocessed_items(limit=batch_size)
 
     if not unprocessed_tweet_ids and not unprocessed_media_identifiers:
         logger.info("No items require embedding processing.")
@@ -339,10 +343,14 @@ def main():
         
         if tweet_batch_data:
             logger.info(f"Processing tweet batch {i // batch_size + 1} with {len(tweet_batch_data)} items...")
+            def process_tweet_item(item):
+                text = (item.get('text') or '').strip()
+                return get_text_embedding(text)
+
             successful_tweets, failed_tweets = process_items_with_retries(
                 tweet_batch_data, 
                 'tweet',
-                lambda item: get_text_embedding(item['text'])
+                process_tweet_item
             )
             # Update DB
             processed_count = update_tweet_embeddings(successful_tweets)
