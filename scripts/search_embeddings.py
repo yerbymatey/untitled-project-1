@@ -5,13 +5,13 @@ from typing import List, Dict, Tuple
 
 from db.session import get_db_session
 from utils.vector_config import EMBEDDING_DIM
-from utils.voyage import voyage_contextualized_embeddings, voyage_rerank
+from utils.voyage import voyage_embeddings, voyage_contextualized_embeddings, voyage_rerank
 
 
 def get_query_embedding(query: str) -> torch.Tensor:
     """Generate a Voyage embedding for the search query."""
     # Use input_type='query' so Voyage applies its retrieval prompt.
-    vecs = voyage_contextualized_embeddings(inputs=[[query]], input_type='query')
+    vecs = voyage_embeddings(texts=[query], input_type='query')
     vec = vecs[0] if vecs else []
     if not vec:
         raise RuntimeError("Voyage returned empty embedding for query")

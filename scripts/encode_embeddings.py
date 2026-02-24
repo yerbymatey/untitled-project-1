@@ -11,6 +11,7 @@ from psycopg2.extras import execute_values  # Import for bulk updates
 
 from db.session import get_db_session
 from utils.voyage import (
+    voyage_embeddings,
     voyage_contextualized_embeddings,
     voyage_multimodal_embeddings,
 )
@@ -305,7 +306,7 @@ def _embed_single_tweet(item: Dict) -> Optional[Dict]:
     outer_attempts = 0
     while True:
         try:
-            vectors = voyage_contextualized_embeddings(inputs=[[text]], input_type='document')
+            vectors = voyage_embeddings(texts=[text], input_type='document')
             if not vectors:
                 logger.warning("Empty embedding for tweet %s", item.get('id'))
                 return None
@@ -329,7 +330,7 @@ def _embed_single_tweet(item: Dict) -> Optional[Dict]:
 
 
 def embed_tweets_with_voyage(tweet_items: List[Dict], batch_size: int = 50) -> List[Dict]:
-    """Compute tweet embeddings in batches using Voyage contextualized embeddings."""
+    """Compute tweet embeddings in batches using Voyage v1/embeddings API."""
     if not tweet_items:
         return []
 
@@ -338,13 +339,13 @@ def embed_tweets_with_voyage(tweet_items: List[Dict], batch_size: int = 50) -> L
     results: List[Dict] = []
 
     for batch in tqdm(_chunked(tweet_items, safe_batch_size), total=total_batches, desc="Tweet Batches", unit="batch"):
-        inputs = [[(item.get('text') or '').strip() or ' '] for item in batch]
+        texts = [(item.get('text') or '').strip() or ' ' for item in batch]
         outer_attempts = 0
         batch_vectors = None
 
         while True:
             try:
-                batch_vectors = voyage_contextualized_embeddings(inputs=inputs, input_type='document')
+                batch_vectors = voyage_embeddings(texts=texts, input_type='document')
                 break
             except Exception as e:
                 # Cooldown on 429 beyond internal retries

@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
+VOYAGE_EMBED_ENDPOINT = os.getenv(
+    "VOYAGE_EMBED_URL", "https://api.voyageai.com/v1/embeddings"
+)
 VOYAGE_MM_ENDPOINT = os.getenv(
     "VOYAGE_MULTIMODAL_URL", "https://api.voyageai.com/v1/multimodalembeddings"
 )
@@ -109,24 +112,51 @@ def voyage_multimodal_embeddings(
     return _parse_embeddings_from_response(data)
 
 
-def voyage_contextualized_embeddings(
-    inputs: List[List[str]],
+def voyage_embeddings(
+    texts: List[str],
     model: str = "voyage-4",
     input_type: Optional[str] = "document",
     output_dimension: Optional[int] = None,
     timeout: int = 60,
 ) -> List[List[float]]:
-    """Call Voyage contextualized chunk embeddings.
+    """Call Voyage text embeddings endpoint (v1/embeddings).
+
+    Args:
+        texts: List of strings to embed. Max 1000 items, max 320K tokens for voyage-4.
+        model: Voyage text model, default voyage-4.
+        input_type: null, query, or document.
+        output_dimension: Optional dimension (256, 512, 1024, 2048).
+        timeout: HTTP timeout.
+    Returns:
+        List of embeddings in the same order as inputs.
+    """
+    payload: dict = {"input": texts, "model": model}
+    if input_type is not None:
+        payload["input_type"] = input_type
+    if output_dimension is not None:
+        payload["output_dimension"] = int(output_dimension)
+
+    data = _post_with_retries(VOYAGE_EMBED_ENDPOINT, payload, _headers(), timeout=timeout)
+    return _parse_embeddings_from_response(data)
+
+
+def voyage_contextualized_embeddings(
+    inputs: List[List[str]],
+    model: str = "voyage-context-3",
+    input_type: Optional[str] = "document",
+    output_dimension: Optional[int] = None,
+    timeout: int = 60,
+) -> List[List[float]]:
+    """Call Voyage contextualized chunk embeddings (legacy, for voyage-context-3).
 
     Args:
         inputs: List of lists of strings. Use [[text]] for single-item documents.
-        model: Voyage context model, default voyage-4.
+        model: Voyage context model.
         input_type: null, query, or document.
-        output_dimension: Optional output dimension supported by the selected model.
+        output_dimension: Optional dimension.
         timeout: HTTP timeout.
     Returns:
-        embeddings list aligned with the inputs order (one per inner list element order).
-        For single-item lists, returns one embedding per list.
+        embeddings list aligned with the inputs order.
     """
     payload: dict = {"inputs": inputs, "model": model}
     if input_type is not None:
