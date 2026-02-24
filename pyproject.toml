@@ -23,4 +23,4 @@ packages = ["db", "pipelines", "bookmarks", "utils", "scripts"]
 
 [project.scripts]
 untitled_project_1 = "scripts.run_scraper:main"
-grab_headers = "scrapers.grab_headers:save_twitter_headers" 
+grab_headers = "bookmarks.grab_headers:save_twitter_headers"
