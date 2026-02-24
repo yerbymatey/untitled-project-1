@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Default model identifiers can be overridden via environment variables to support experimentation.
 TEXT_MODEL_NAME: str = os.getenv("TEXT_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5")
 VISION_MODEL_NAME: str = os.getenv("VISION_EMBED_MODEL", "nomic-ai/nomic-embed-vision-v1.5")
-EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "768"))
+EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "1024"))
 
 
 def _select_device() -> torch.device:

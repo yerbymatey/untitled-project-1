@@ -87,7 +87,7 @@ def _parse_embeddings_from_response(data: dict) -> List[List[float]]:
 
 def voyage_multimodal_embeddings(
     inputs: List[dict],
-    model: str = "voyage-multimodal-3",
+    model: str = "voyage-multimodal-3.5",
     input_type: Optional[str] = "document",
     timeout: int = 60,
 ) -> List[List[float]]:
@@ -111,7 +111,7 @@ def voyage_multimodal_embeddings(
 
 def voyage_contextualized_embeddings(
     inputs: List[List[str]],
-    model: str = "voyage-context-3",
+    model: str = "voyage-4",
     input_type: Optional[str] = "document",
     output_dimension: Optional[int] = None,
     timeout: int = 60,
@@ -120,9 +120,9 @@ def voyage_contextualized_embeddings(
 
     Args:
         inputs: List of lists of strings. Use [[text]] for single-item documents.
-        model: Voyage context model, default voyage-context-3.
+        model: Voyage context model, default voyage-4.
         input_type: null, query, or document.
-        output_dimension: Optional dimension (2048, 1024, 512, 256).
+        output_dimension: Optional output dimension supported by the selected model.
         timeout: HTTP timeout.
     Returns:
         embeddings list aligned with the inputs order (one per inner list element order).
