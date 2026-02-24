@@ -4,7 +4,8 @@ import threading
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
-from utils.config import DB_CONFIG, DB_SCHEMA
+from db.schema import get_schema_statements
+from utils.config import DB_CONFIG
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -71,7 +72,8 @@ class DatabaseSession:
         """Verify and update database schema if needed"""
         try:
             # Execute schema creation/update
-            self.execute(DB_SCHEMA)
+            for statement in get_schema_statements():
+                self.execute(statement)
             self.commit()
             
             # Verify tables exist
