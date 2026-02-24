@@ -19,8 +19,12 @@ dependencies = [
 packages = ["db", "pipelines", "bookmarks", "utils", "scripts"]
 
 [project.optional-dependencies]
-# (Optional dependency groups removed: DeepSeek-VL is no longer used)
+parquet = [
+    "pyarrow>=16.0.0",
+]
 
 [project.scripts]
 untitled_project_1 = "scripts.run_scraper:main"
 grab_headers = "scrapers.grab_headers:save_twitter_headers" 
+bm-export = "scripts.export_bookmarks:main"
+bm-import = "scripts.import_export:main"
