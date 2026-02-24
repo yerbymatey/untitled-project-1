@@ -21,9 +21,11 @@ fi
 PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
 if [ -n "$PYTHON_FILES" ]; then
     for f in $PYTHON_FILES; do
-        if ! python3 -c "import ast; ast.parse(open('$f').read())" 2>/dev/null; then
-            echo "❌ BLOCKED: Syntax error in $f"
-            exit 1
+        if [ -f "$f" ]; then
+            if ! python3 -c "import ast, sys; ast.parse(open(sys.argv[1]).read())" "$f" 2>/dev/null; then
+                echo "❌ BLOCKED: Syntax error in $f"
+                exit 1
+            fi
         fi
     done
 fi

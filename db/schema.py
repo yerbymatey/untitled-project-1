@@ -51,6 +51,9 @@ def get_schema_statements(dimension: int = int(os.getenv("EMBEDDING_DIM", "1024"
             url TEXT,
             expanded_url TEXT,
             display_url TEXT,
+            title TEXT,
+            description TEXT,
+            content_snippet TEXT,
             PRIMARY KEY (tweet_id, url)
         );
         """,
