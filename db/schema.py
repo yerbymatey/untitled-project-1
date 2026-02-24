@@ -70,8 +70,12 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Configure PostgreSQL database schema")
-    parser.add_argument("--dimension", type=int, default=768, 
-                        help="Vector dimension to use (default: 768)")
+    parser.add_argument(
+        "--dimension",
+        type=int,
+        default=int(os.getenv("EMBEDDING_DIM", "1024")),
+        help="Vector dimension to use (default: EMBEDDING_DIM or 1024)",
+    )
     args = parser.parse_args()
     
     setup_database(args.dimension)

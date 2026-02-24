@@ -120,8 +120,8 @@ python -m utils.process_images input.jpg output.jpg --width 512 --height 512
 
 This project uses the pgvector extension for PostgreSQL to enable efficient similarity searches. Embeddings are generated using Voyage AI:
 
-- Text/query embeddings: `voyage-context-3` (contextualized embeddings)
-- Media embeddings: `voyage-multimodal-3` (image-only and joint text+image)
+- Text/query embeddings: `voyage-4` (contextualized embeddings)
+- Media embeddings: `voyage-multimodal-3.5` (image-only and joint text+image)
 
 ### Image Processing
 

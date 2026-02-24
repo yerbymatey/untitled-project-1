@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
 import requests
 
@@ -295,33 +295,111 @@ def fetch_item_data(tweet_ids=None, media_identifiers=None):
     return items
 
 
-def embed_tweets_with_voyage(tweet_items: List[Dict]) -> List[Dict]:
-    """Compute embeddings for tweets one item at a time (no batching), with a progress bar."""
+def _chunked(items: List[Dict], size: int):
+    for index in range(0, len(items), size):
+        yield items[index:index + size]
+
+
+def _embed_single_tweet(item: Dict) -> Optional[Dict]:
+    text = (item.get('text') or '').strip() or ' '
+    outer_attempts = 0
+    while True:
+        try:
+            vectors = voyage_contextualized_embeddings(inputs=[[text]], input_type='document')
+            if not vectors:
+                logger.warning("Empty embedding for tweet %s", item.get('id'))
+                return None
+            out = dict(item)
+            out['embedding'] = vectors[0]
+            return out
+        except Exception as e:
+            # Cooldown on 429 beyond internal retries
+            if isinstance(e, requests.HTTPError) and e.response is not None and e.response.status_code == 429 and outer_attempts < 3:
+                outer_attempts += 1
+                logger.warning(
+                    "429 for tweet %s; cooling down %.1fs (outer attempt %d)",
+                    item.get('id'),
+                    TWEET_COOLDOWN_SEC,
+                    outer_attempts,
+                )
+                time.sleep(TWEET_COOLDOWN_SEC)
+                continue
+            logger.error(f"Voyage error for tweet {item.get('id')}: {e}")
+            return None
+
+
+def embed_tweets_with_voyage(tweet_items: List[Dict], batch_size: int = 50) -> List[Dict]:
+    """Compute tweet embeddings in batches using Voyage contextualized embeddings."""
+    if not tweet_items:
+        return []
+
+    safe_batch_size = max(1, min(int(batch_size), 1000))
+    total_batches = (len(tweet_items) + safe_batch_size - 1) // safe_batch_size
     results: List[Dict] = []
-    for item in tqdm(tweet_items, desc="Tweets", unit="it"):
-        text = (item.get('text') or '').strip() or ' '
+
+    for batch in tqdm(_chunked(tweet_items, safe_batch_size), total=total_batches, desc="Tweet Batches", unit="batch"):
+        inputs = [[(item.get('text') or '').strip() or ' '] for item in batch]
         outer_attempts = 0
+        batch_vectors = None
+
         while True:
             try:
-                vectors = voyage_contextualized_embeddings(inputs=[[text]], input_type='document')
-                if not vectors:
-                    logger.warning("Empty embedding for tweet %s", item.get('id'))
-                    break
-                out = dict(item)
-                out['embedding'] = vectors[0]
-                results.append(out)
+                batch_vectors = voyage_contextualized_embeddings(inputs=inputs, input_type='document')
                 break
             except Exception as e:
                 # Cooldown on 429 beyond internal retries
                 if isinstance(e, requests.HTTPError) and e.response is not None and e.response.status_code == 429 and outer_attempts < 3:
                     outer_attempts += 1
-                    logger.warning("429 for tweet %s; cooling down %.1fs (outer attempt %d)", item.get('id'), TWEET_COOLDOWN_SEC, outer_attempts)
+                    logger.warning(
+                        "429 for tweet batch starting at %s; cooling down %.1fs (outer attempt %d)",
+                        batch[0].get('id'),
+                        TWEET_COOLDOWN_SEC,
+                        outer_attempts,
+                    )
                     time.sleep(TWEET_COOLDOWN_SEC)
                     continue
-                logger.error(f"Voyage error for tweet {item.get('id')}: {e}")
+                logger.error(
+                    "Voyage error for tweet batch starting at %s: %s",
+                    batch[0].get('id'),
+                    e,
+                )
                 break
-        # Pacing between items
+
+        if batch_vectors is None:
+            logger.info(
+                "Falling back to single-item calls for tweet batch starting at %s",
+                batch[0].get('id'),
+            )
+            for item in batch:
+                embedded = _embed_single_tweet(item)
+                if embedded is not None:
+                    results.append(embedded)
+                time.sleep(TWEET_SLEEP_SEC)
+            continue
+
+        if len(batch_vectors) != len(batch):
+            logger.warning(
+                "Voyage returned %d vectors for tweet batch of %d items. Missing entries will be retried individually.",
+                len(batch_vectors),
+                len(batch),
+            )
+
+        for i, item in enumerate(batch):
+            if i < len(batch_vectors) and batch_vectors[i]:
+                out = dict(item)
+                out['embedding'] = batch_vectors[i]
+                results.append(out)
+                continue
+
+            logger.warning("Empty/missing embedding for tweet %s; retrying individually", item.get('id'))
+            embedded = _embed_single_tweet(item)
+            if embedded is not None:
+                results.append(embedded)
+            time.sleep(TWEET_SLEEP_SEC)
+
+        # Pacing between API calls
         time.sleep(TWEET_SLEEP_SEC)
+
     return results
 
 
@@ -380,10 +458,13 @@ def embed_media_with_voyage(media_items: List[Dict]) -> List[Dict]:
     return results
 
 def main():
-    parser = argparse.ArgumentParser(description='Process tweets and media with Voyage embeddings (sequential, no batching)')
-    # batch-size retained for backward compat but ignored
-    parser.add_argument('--batch-size', type=int, default=100,
-                        help='Ignored: embeddings run sequentially without batching')
+    parser = argparse.ArgumentParser(description='Process tweets and media with Voyage embeddings')
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=int(os.getenv("VOYAGE_TWEET_BATCH_SIZE", "50")),
+        help='Tweet embedding batch size (max Voyage inputs: 1000). Default: 50',
+    )
     # GPU/CPU is irrelevant for hosted APIs; keep option for compatibility no-op.
     parser.add_argument('--force-cpu', action='store_true',
                         help='No-op (hosted embeddings).')
@@ -406,14 +487,18 @@ def main():
         logger.info("No items require embedding processing.")
         return
 
-    # --- Process Tweets Sequentially ---
+    # --- Process Tweets (Batched) ---
     if unprocessed_tweet_ids:
         logger.info(f"Fetching data for {len(unprocessed_tweet_ids)} tweets...")
         tweet_data = fetch_item_data(tweet_ids=unprocessed_tweet_ids)
         if tweet_data:
-            logger.info(f"Processing {len(tweet_data)} tweets sequentially (no batching)...")
+            logger.info(
+                "Processing %d tweets in batches of up to %d...",
+                len(tweet_data),
+                max(1, args.batch_size),
+            )
             try:
-                successful_tweets = embed_tweets_with_voyage(tweet_data)
+                successful_tweets = embed_tweets_with_voyage(tweet_data, batch_size=args.batch_size)
                 processed_count = update_tweet_embeddings(successful_tweets)
                 total_processed_tweets += processed_count
             except Exception as e:
