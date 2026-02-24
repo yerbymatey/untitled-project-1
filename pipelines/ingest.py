@@ -212,7 +212,7 @@ class BookmarkIngester:
             # Collect URLs
             if tweet.get('urls'):
                 data['url_values'].extend([
-                    (tweet['id'], url['url'])
+                    (tweet['id'], url['url'], url.get('expanded_url'), url.get('display_url'))
                     for url in tweet['urls']
                 ])
             
@@ -291,9 +291,11 @@ class BookmarkIngester:
         if data['url_values']:
             session.execute_values(
                 """
-                INSERT INTO urls (tweet_id, url)
+                INSERT INTO urls (tweet_id, url, expanded_url, display_url)
                 VALUES %s
-                ON CONFLICT (tweet_id, url) DO NOTHING
+                ON CONFLICT (tweet_id, url) DO UPDATE SET
+                    expanded_url = COALESCE(EXCLUDED.expanded_url, urls.expanded_url),
+                    display_url = COALESCE(EXCLUDED.display_url, urls.display_url)
                 """,
                 data['url_values']
             )
@@ -329,6 +331,42 @@ class BookmarkIngester:
         
         return str(output_path)
     
+    def _extract_og_tweets(self, bookmarks: List[Dict]) -> List[Dict]:
+        """Extract original tweets from quote tweet bookmarks as independent tweet dicts.
+
+        Returns a list of tweet dicts in the same shape as regular bookmarks so they
+        can be fed through _insert_users / _insert_tweets unchanged.
+        """
+        og_tweets = {}
+        for bm in bookmarks:
+            qs = bm.get('quoted_status')
+            if not qs or not qs.get('id'):
+                continue
+            og_id = qs['id']
+            if og_id in og_tweets:
+                continue  # dedup
+
+            # Normalize the quoted_status into the same shape as a top-level bookmark
+            og_tweet = {
+                'id': og_id,
+                'text': qs.get('text', ''),
+                'created_at': qs.get('created_at'),
+                'retweet_count': qs.get('retweet_count', 0),
+                'favorite_count': qs.get('favorite_count', 0),
+                'reply_count': qs.get('reply_count', 0),
+                'quote_count': qs.get('quote_count', 0),
+                'is_quote_status': False,
+                'quoted_status': None,
+                'url': qs.get('url', ''),
+                'user': qs.get('user', {}),
+                'hashtags': qs.get('hashtags', []),
+                'urls': qs.get('urls', []),
+                'media': qs.get('media', {'has_media': False, 'items': []}),
+            }
+            og_tweets[og_id] = og_tweet
+
+        return list(og_tweets.values())
+
     def ingest_bookmarks(self, bookmarks: List[Dict], save_to_file: bool = True) -> Optional[str]:
         """Ingest bookmarks into the database and optionally save to file"""
         logger.info(f"Starting ingestion of {len(bookmarks)} bookmarks...")
@@ -342,13 +380,26 @@ class BookmarkIngester:
         # Ingest into database
         with get_db_session() as session:
             try:
+                # Extract OG tweets from quoted statuses
+                og_tweets = self._extract_og_tweets(bookmarks)
+                if og_tweets:
+                    logger.info(f"Extracted {len(og_tweets)} original tweets from quote tweets")
+
+                # Combine all tweets for user collection
+                all_tweets = bookmarks + og_tweets
+
                 # Collect and deduplicate users
-                users = self._collect_users(bookmarks)
+                users = self._collect_users(all_tweets)
                 
                 # Insert users first
                 self._insert_users(session, users)
+
+                # Insert OG tweets first (so FK from quoted_tweet_id resolves)
+                if og_tweets:
+                    self._insert_tweets(session, og_tweets)
+                    logger.info(f"Inserted {len(og_tweets)} original tweets")
                 
-                # Insert tweets and related entities
+                # Insert bookmarked tweets and related entities
                 self._insert_tweets(session, bookmarks)
                 
                 logger.info("Successfully ingested all bookmarks into database")
