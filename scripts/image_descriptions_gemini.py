@@ -1,18 +1,14 @@
 import argparse
-from pathlib import Path
-import tempfile
 import os
 import requests
-from io import BytesIO
 from typing import List, Dict, Any
-from PIL import Image
 from tqdm import tqdm
 import logging
 from collections import defaultdict
+import time
 
-from utils.vl_utils import setup_vl_model, process_vl_conversation
 from db.session import get_db_session
-from utils.process_images import resize_image
+from utils.gemini import describe_image_with_gemini, parse_gemini_response
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -65,6 +61,9 @@ def process_items_with_retries(items, item_type, process_func, max_retries=MAX_R
                 else:
                     logger.error(f"{item_type.capitalize()} {item_id} failed after {max_retries} retries.")
                     permanently_failed_items.append(item)
+
+            # Pace requests to the hosted model provider
+            time.sleep(0.2)
 
         items_to_process = next_retry_items
         current_pass += 1
@@ -133,8 +132,8 @@ def get_unprocessed_media(offset=0, batch_size=100, overwrite=False):
         posts = session.fetchall()
         return [{"id": p['id'], "image_url": p['media_url'], "tweet_text": p['tweet_text']} for p in posts]
 
-def process_post(post: Dict[str, Any], vl_chat_processor, vl_gpt, device, dtype) -> Dict[str, Any]:
-    """Process a single post with the VL model."""
+def process_post(post: Dict[str, Any]) -> Dict[str, Any]:
+    """Process a single post with Gemini to produce an image description."""
     # Ensure post_id is correctly identified (it's the tweet ID here)
     tweet_id = post.get('id') or post.get('tweet_id')
     if not tweet_id:
@@ -145,46 +144,15 @@ def process_post(post: Dict[str, Any], vl_chat_processor, vl_gpt, device, dtype)
         raise ValueError("Missing image URL ('image_url' or 'media_url') in post data")
 
     try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Download image from URL
-            response = requests.get(media_url, timeout=30) # Added timeout
-            response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
-            
-            # Convert to PIL Image
-            image = Image.open(BytesIO(response.content))
-            
-            # Resize image
-            resized_image = resize_image(image, output_size=(512, 512))
-            
-            # Convert to RGB mode before saving as JPEG
-            resized_image = resized_image.convert('RGB')
-            
-            # Save to temporary file
-            image_path = os.path.join(temp_dir, f"{tweet_id}.jpg")
-            resized_image.save(image_path, 'JPEG')
-            
-            # Create conversation focused on objective description
-            conversation = [
-                {
-                    "role": "User",
-                    "content": "<image_placeholder> Provide a concise, high-level semantic summary capturing the core meaning or implication of this image as if summarizing its relevance in casual conversation. Avoid minor details, names, or labels unless essential. Limit your response strictly within two succinct sentences.",
-                    "images": [image_path]
-                },
-                {
-                    "role": "Assistant",
-                    "content": ""
-                }
-            ]
-            
-            # Process with VL model
-            answer, sft_format = process_vl_conversation(conversation, vl_chat_processor, vl_gpt, device, dtype)
-            
-            return {
-                "post_id": tweet_id,
-                "tweet_text": post['tweet_text'],
-                "image_description": answer,
-                "media_url": media_url
-            }
+        raw_answer = describe_image_with_gemini(media_url)
+        parsed = parse_gemini_response(raw_answer)
+        return {
+            "post_id": tweet_id,
+            "tweet_text": post.get('tweet_text', ''),
+            "image_description": parsed["image_desc"],
+            "extr_text": parsed["extr_text"],
+            "media_url": media_url,
+        }
     except requests.exceptions.RequestException as e:
         status_code = e.response.status_code if e.response is not None else None
         if status_code == 404:
@@ -193,7 +161,8 @@ def process_post(post: Dict[str, Any], vl_chat_processor, vl_gpt, device, dtype)
                 "post_id": tweet_id,
                 "media_url": media_url,
                 "image_description": IMAGE_UNAVAILABLE_MARKER,
-                "tweet_text": post.get('tweet_text', '') # Include for consistency
+                "extr_text": None,
+                "tweet_text": post.get('tweet_text', '')
             }
         elif status_code == 403:
             logger.warning(f"Access denied (403) for {media_url}. Marking as access denied.")
@@ -201,6 +170,7 @@ def process_post(post: Dict[str, Any], vl_chat_processor, vl_gpt, device, dtype)
                 "post_id": tweet_id,
                 "media_url": media_url,
                 "image_description": IMAGE_ACCESS_DENIED_MARKER,
+                "extr_text": None,
                 "tweet_text": post.get('tweet_text', '')
             }
         else:
@@ -210,7 +180,7 @@ def process_post(post: Dict[str, Any], vl_chat_processor, vl_gpt, device, dtype)
         # Catch other potential errors (PIL, VL model, etc.) and re-raise
         raise Exception(f"Error processing post {tweet_id} with media {media_url}: {e}") from e
 
-def process_batch(posts, vl_chat_processor, vl_gpt, device, dtype, batch_num, total_batches):
+def process_batch(posts, batch_num, total_batches):
     """Process a batch of media items"""
     if not posts:
         return 0, 0
@@ -223,7 +193,7 @@ def process_batch(posts, vl_chat_processor, vl_gpt, device, dtype, batch_num, to
     # Process each post
     for post in tqdm(posts, desc=f"Batch {batch_num}/{total_batches}"):
         try:
-            result = process_post(post, vl_chat_processor, vl_gpt, device, dtype)
+            result = process_post(post)
             processed_count += 1
             successful_updates.append(result)
             print(f"\nPost ID: {result['post_id']}")
@@ -240,10 +210,10 @@ def process_batch(posts, vl_chat_processor, vl_gpt, device, dtype, batch_num, to
             for result in successful_updates:
                 try:
                     session.execute("""
-                        UPDATE media 
-                        SET image_desc = %s
+                        UPDATE media
+                        SET image_desc = %s, extr_text = %s
                         WHERE tweet_id = %s AND media_url = %s
-                    """, (result['image_description'], result['post_id'], result['media_url']))
+                    """, (result['image_description'], result.get('extr_text'), result['post_id'], result['media_url']))
                 except Exception as e:
                     print(f"Error updating post {result['post_id']}: {str(e)}")
                     failed_count += 1
@@ -270,7 +240,8 @@ def update_media_descriptions(successful_media_items):
         for item in successful_media_items:
             update_values.append((
                 item['image_description'],
-                item['post_id'], 
+                item.get('extr_text'),
+                item['post_id'],
                 item['media_url']
             ))
 
@@ -279,8 +250,8 @@ def update_media_descriptions(successful_media_items):
             try:
                 execute_values(
                     session.cursor, # Pass cursor directly
-                    """UPDATE media SET image_desc = v.image_desc
-                    FROM (VALUES %s) AS v(image_desc, tweet_id, media_url)
+                    """UPDATE media SET image_desc = v.image_desc, extr_text = v.extr_text
+                    FROM (VALUES %s) AS v(image_desc, extr_text, tweet_id, media_url)
                     WHERE media.tweet_id = v.tweet_id AND media.media_url = v.media_url""",
                     update_values,
                     page_size=len(update_values) # Ensure all values are processed
@@ -311,7 +282,7 @@ def get_description_stats():
         return result
 
 def main():
-    parser = argparse.ArgumentParser(description="Process images with DeepSeek VL model")
+    parser = argparse.ArgumentParser(description="Generate image descriptions with Gemini 3 Flash")
     parser.add_argument("--batch-size", type=int, default=10, # Reduced default batch size for VL
                         help="Number of items to process per batch (default: 10)")
     parser.add_argument("--small-batch", action="store_true",
@@ -342,12 +313,6 @@ def main():
     # total_count = get_total_count(overwrite=args.overwrite) # This is informational now
     # print(f"Total media items to process (estimate): {total_count}")
     
-    # Setup VL model once at the start
-    logger.info("Loading VL model...")
-    model_path = "deepseek-ai/deepseek-vl-7b-chat"
-    vl_chat_processor, tokenizer, vl_gpt, device, dtype = setup_vl_model(model_path)
-    logger.info("VL model loaded successfully")
-
     total_processed_media = 0
     total_failed_media = 0
 
@@ -385,9 +350,8 @@ def main():
         
         logger.info(f"Processing media batch {i // batch_size + 1} with {len(batch_identifiers_data)} items...")
         
-        # Define the processing function for this batch, capturing necessary VL variables
         def batch_process_func(item):
-            return process_post(item, vl_chat_processor, vl_gpt, device, dtype)
+            return process_post(item)
 
         successful_media, failed_media = process_items_with_retries(
             batch_identifiers_data, 

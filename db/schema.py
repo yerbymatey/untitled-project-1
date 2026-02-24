@@ -1,6 +1,7 @@
+import os
 from db.session import get_db_session
 
-def setup_database(dimension: int = 768):
+def setup_database(dimension: int = int(os.getenv("EMBEDDING_DIM", "1024"))):
     """Set up the complete database schema including vector support"""
     with get_db_session() as session:
         # First ensure vector extension exists

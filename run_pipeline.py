@@ -79,15 +79,11 @@ def main():
         help="Skip the embedding generation step (`python -m scripts.encode_embeddings`).",
     )
     parser.add_argument(
-        "--run-ds-vl",
+        "--skip-image-descriptions",
         action="store_true",
-        help="Run the optional DeepSeek VL image description step (`python -m scripts.ds_vl`).",
+        help="Skip the image description step (Gemini).",
     )
-    parser.add_argument(
-        "--skip-text-extraction",
-        action="store_true",
-        help="Skip the image text extraction step (`python -m scripts.extract_text_colnomic`).",
-    )
+    # Removed image text extraction step (SmolDocling/MLX)
 
     args = parser.parse_args()
 
@@ -116,25 +112,17 @@ def main():
     else:
         logger.info("--- Skipping Data Scraper ---")
 
-    # Step 3: Extract text from media (Optional)
-    if not args.skip_text_extraction:
-        logger.info("--- Running Image Text Extraction ---")
-        if not run_command([python_executable, "-m", "scripts.extract_text_colnomic"]):
-            logger.error("Image text extraction failed. Aborting pipeline.")
-            sys.exit(1)
-        logger.info("--- Image Text Extraction Finished ---")
-    else:
-        logger.info("--- Skipping Image Text Extraction ---")
+    # Removed: Image text extraction step (SmolDocling/MLX)
 
-    # Step 4: Generate Image Descriptions (Optional)
-    if args.run_ds_vl:
-        logger.info("--- Running DeepSeek VL Image Description ---")
-        if not run_command([python_executable, "-m", "scripts.ds_vl"]):
-            # This is optional, so maybe just warn? Let's warn for now.
-            logger.warning("DeepSeek VL image description step failed. Continuing pipeline.")
-        logger.info("--- DeepSeek VL Image Description Finished ---")
+    # Step 4: Generate Image Descriptions (Default ON)
+    if not args.skip_image_descriptions:
+        logger.info("--- Running Gemini Image Description ---")
+        if not run_command([python_executable, "-m", "scripts.image_descriptions_gemini"]):
+            # Non-fatal: continue to embeddings even if descriptions fail
+            logger.warning("Gemini image description step failed. Continuing pipeline.")
+        logger.info("--- Gemini Image Description Finished ---")
     else:
-        logger.info("--- Skipping DeepSeek VL Image Description ---")
+        logger.info("--- Skipping Gemini Image Description ---")
 
     # Step 5: Generate Embeddings (Optional)
     if not args.skip_embeddings:

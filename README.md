@@ -5,7 +5,7 @@ A social media content search engine with AI-powered analysis capabilities. This
 ## Features
 
 - **Vector Search**: Search tweets and images using semantic similarity
-- **Image Understanding**: Automatically generate descriptions for images using DeepSeek VL
+- **Image Understanding**: Automatically generate descriptions for images using Gemini 2.5 Flash
 - **Web Interface**: Simple Flask-based UI for searching content
 - **Command Line Tools**: Scripts for batch processing and content analysis
 - **GPU Acceleration**: Optimized image processing with Metal GPU support on macOS
@@ -16,7 +16,7 @@ A social media content search engine with AI-powered analysis capabilities. This
 
 - Python 3.8+ (Python 3.11 recommended)
 - PostgreSQL with pgvector extension
-- DeepSeek VL model (optional, for image description)
+- Gemini API key (for image descriptions)
 - Metal-compatible GPU (for accelerated image processing on macOS)
 
 ### Setup
@@ -32,10 +32,11 @@ A social media content search engine with AI-powered analysis capabilities. This
    pip install -e .
    ```
 
-3. Install DeepSeek VL dependencies (optional, for image understanding):
-   ```bash
-   pip install -r requirements-dsvl.txt
-   ```
+3. Set environment variables in `.env` (copy from `.env.example`):
+   - `POSTGRES_*` for database
+   - `GEMINI_API_KEY` for image descriptions
+   - `VOYAGE_API_KEY` for embeddings and rerank
+   - `EMBEDDING_DIM=1024` (default for Voyage)
 
 4. Configure the database:
    ```bash
@@ -53,14 +54,11 @@ A social media content search engine with AI-powered analysis capabilities. This
    python -m scripts.run_scraper
    ```
 
-### Generating Image Embeddings and Descriptions
+### Pipeline (Scrape → Describe → Embed)
 
 ```bash
 # Generate embeddings for imported content
-python -m scripts.encode_embeddings
-
-# Generate image descriptions with DeepSeek VL (if installed)
-python -m scripts.ds_vl
+python run_pipeline.py
 ```
 
 ### Searching Content
@@ -84,7 +82,7 @@ python -m scripts.search_cli "climate change" --limit 10
 #### Web Interface
 
 ```bash
-# Start the web server
+# Start the web server (after running the pipeline at least once)
 python -m app
 
 # Then open http://localhost:5000 in your browser
@@ -92,20 +90,12 @@ python -m app
 
 ## Advanced Usage
 
-### Image Processing
+### Image Processing (Optional)
 
-The project includes optimized image processing for macOS using Metal:
+The project includes a simple image resize utility for macOS:
 
 ```bash
-# Resize an image using GPU acceleration
 python -m utils.process_images input.jpg output.jpg --width 512 --height 512
-```
-
-### Analyze Tweets with GPT-4o
-
-```bash
-# Analyze recent tweets
-python -m scripts.analyze_tweets_gpt4o --limit 10
 ```
 
 ## Project Structure
@@ -116,21 +106,22 @@ python -m scripts.analyze_tweets_gpt4o --limit 10
 - `pipelines/` - Data processing pipelines
 - `scripts/` - Command-line utilities
   - `search_cli.py` - Command-line search interface
-  - `ds_vl.py` - DeepSeek VL image description generator
-  - `encode_embeddings.py` - Generate embeddings for content
+  - `image_descriptions_gemini.py` - Gemini image description generator
+  - `encode_embeddings.py` - Generate embeddings (Voyage APIs)
 - `utils/` - Utility functions
-  - `embedding_utils.py` - Vector embedding generation
-  - `process_images.py` - GPU-accelerated image processing
-  - `vl_utils.py` - Vision-language model utilities
+  - `gemini.py` - Gemini HTTP client
+  - `voyage.py` - Voyage HTTP client (multimodal/contextualized/rerank)
+  - `embedding_utils.py` - Legacy local embedding helpers (still used by some tools)
+  - `process_images.py` - Image resize helper
 
 ## Technical Considerations
 
 ### Vector Search
 
-This project uses the pgvector extension for PostgreSQL to enable efficient similarity searches. Embeddings are generated using the Nomic Embed models for both text and images:
+This project uses the pgvector extension for PostgreSQL to enable efficient similarity searches. Embeddings are generated using Voyage AI:
 
-- Text embeddings: `nomic-ai/nomic-embed-text-v1.5`
-- Vision embeddings: `nomic-ai/nomic-embed-vision-v1.5`
+- Text/query embeddings: `voyage-context-3` (contextualized embeddings)
+- Media embeddings: `voyage-multimodal-3` (image-only and joint text+image)
 
 ### Image Processing
 
@@ -140,9 +131,9 @@ On macOS, the system uses Metal for GPU-accelerated image processing. The implem
 2. Core Image (fallback)
 3. NumPy/SciPy (CPU fallback)
 
-### DeepSeek VL Integration
+### Hosted Models
 
-The DeepSeek Vision-Language model requires specific dependencies and GPU resources. The model is used to generate semantic descriptions of images, enhancing the search capabilities.
+Image descriptions are generated via Gemini 2.5 Flash. Embeddings and reranking are provided by Voyage APIs. No local model downloads are required.
 
 ## Contributing
 
@@ -155,7 +146,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Caveats and Limitations
 
 - **API Rate Limits**: Social media APIs may impose rate limits that affect data collection
-- **GPU Requirements**: DeepSeek VL model works best with GPU acceleration
+- **API Keys**: Gemini and Voyage credentials are required
 - **PostgreSQL Requirements**: Requires pgvector extension for vector similarity search
-- **Image Processing**: Metal acceleration only works on macOS with compatible GPUs
-- **Model Size**: DeepSeek VL model requires significant RAM (16GB+) for optimal performance
+- **Image Processing**: The resize helper is basic; heavy OCR is not included

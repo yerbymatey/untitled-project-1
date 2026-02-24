@@ -1,36 +1,25 @@
-import torch
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModel, AutoImageProcessor
+from typing import List, Dict
+import os
 import requests
-from PIL import Image
-from io import BytesIO
+
 from tqdm import tqdm
 import argparse
-import os
 import logging
 from collections import defaultdict
-from psycopg2.extras import execute_values # Import for bulk updates
+import time
+from psycopg2.extras import execute_values  # Import for bulk updates
 
 from db.session import get_db_session
-from utils.embedding_utils import (
-    mean_pooling,
-    DEVICE,
-    TEXT_MODEL_NAME,
-    VISION_MODEL_NAME,
-    get_text_embedding,
-    get_image_embedding,
-    download_image
+from utils.voyage import (
+    voyage_contextualized_embeddings,
+    voyage_multimodal_embeddings,
 )
 
-print(f"Using device: {DEVICE}")
-
-tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-text_model = AutoModel.from_pretrained(TEXT_MODEL_NAME, trust_remote_code=True).to(DEVICE)
-text_model.eval()
-
-vision_processor = AutoImageProcessor.from_pretrained(VISION_MODEL_NAME)
-vision_model = AutoModel.from_pretrained(VISION_MODEL_NAME, trust_remote_code=True).to(DEVICE)
-vision_model.eval()
+# Throttle configuration (env-overridable)
+TWEET_SLEEP_SEC = float(os.getenv("VOYAGE_TWEET_SLEEP_SEC", "0.5"))
+TWEET_COOLDOWN_SEC = float(os.getenv("VOYAGE_TWEET_COOLDOWN_SEC", "30"))
+MEDIA_SLEEP_SEC = float(os.getenv("VOYAGE_MEDIA_SLEEP_SEC", "0.5"))
+MEDIA_COOLDOWN_SEC = float(os.getenv("VOYAGE_MEDIA_COOLDOWN_SEC", "30"))
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -123,10 +112,10 @@ def get_total_counts():
         session.execute("""
             SELECT COUNT(*) as count 
             FROM media 
-            WHERE embedding IS NULL
-            AND image_desc IS NOT NULL
-            AND image_desc != ''
-            AND type = 'photo'
+            WHERE (joint_embedding IS NULL OR image_embedding IS NULL)
+              AND image_desc IS NOT NULL
+              AND image_desc != ''
+              AND type = 'photo'
         """)
         result = session.fetchone()
         media_total = result['count'] if result else 0
@@ -157,12 +146,14 @@ def get_unprocessed_items(limit=100):
         """, (limit,))
         unprocessed_tweet_ids = [r['id'] for r in session.fetchall()]
         
-        # Get media items without joint or image embeddings
+        # Get media items without joint or image embeddings (only those with descriptions)
         session.execute("""
             SELECT tweet_id, media_url
             FROM media
             WHERE (joint_embedding IS NULL OR image_embedding IS NULL)
             AND type = 'photo'
+            AND image_desc IS NOT NULL
+            AND image_desc != ''
             LIMIT %s
         """, (limit,))
         unprocessed_media_identifiers = [(r['tweet_id'], r['media_url']) for r in session.fetchall()]
@@ -172,9 +163,9 @@ def get_unprocessed_items(limit=100):
     
     return unprocessed_tweet_ids, unprocessed_media_identifiers
 
-def format_vector_for_postgres(vector: torch.Tensor) -> str:
-    """Format a torch tensor vector into a string suitable for PostgreSQL vector type."""
-    return str(vector.cpu().numpy().tolist()) # Convert to list of floats
+def format_vector_for_postgres(vector: List[float]) -> str:
+    """Format a Python list vector into a string suitable for PostgreSQL vector type."""
+    return str(list(vector))
 
 def update_tweet_embeddings(successful_tweet_items):
     """Update tweet embeddings in database from successfully processed items."""
@@ -284,7 +275,7 @@ def fetch_item_data(tweet_ids=None, media_identifiers=None):
             # Fetch media data
             # media_identifiers is a list of tuples: [(tweet_id, media_url), ...]
             media_query = """
-            SELECT m.tweet_id, t.text, m.media_url, m.image_desc
+            SELECT m.tweet_id, t.text, m.media_url, m.image_desc, m.extr_text
             FROM media m
             JOIN tweets t ON t.id = m.tweet_id
             WHERE (m.tweet_id, m.media_url) IN %s
@@ -295,130 +286,166 @@ def fetch_item_data(tweet_ids=None, media_identifiers=None):
             for item in media_result:
                  items.append({
                     'tweet_id': item['tweet_id'],
-                    'text': item['text'], # Include tweet text for context if needed by embedding func
+                    'text': item['text'],
                     'media_url': item['media_url'],
                     'image_desc': item['image_desc'],
+                    'extr_text': item['extr_text'],
                     'type': 'media'
                 })
     return items
 
+
+def embed_tweets_with_voyage(tweet_items: List[Dict]) -> List[Dict]:
+    """Compute embeddings for tweets one item at a time (no batching), with a progress bar."""
+    results: List[Dict] = []
+    for item in tqdm(tweet_items, desc="Tweets", unit="it"):
+        text = (item.get('text') or '').strip() or ' '
+        outer_attempts = 0
+        while True:
+            try:
+                vectors = voyage_contextualized_embeddings(inputs=[[text]], input_type='document')
+                if not vectors:
+                    logger.warning("Empty embedding for tweet %s", item.get('id'))
+                    break
+                out = dict(item)
+                out['embedding'] = vectors[0]
+                results.append(out)
+                break
+            except Exception as e:
+                # Cooldown on 429 beyond internal retries
+                if isinstance(e, requests.HTTPError) and e.response is not None and e.response.status_code == 429 and outer_attempts < 3:
+                    outer_attempts += 1
+                    logger.warning("429 for tweet %s; cooling down %.1fs (outer attempt %d)", item.get('id'), TWEET_COOLDOWN_SEC, outer_attempts)
+                    time.sleep(TWEET_COOLDOWN_SEC)
+                    continue
+                logger.error(f"Voyage error for tweet {item.get('id')}: {e}")
+                break
+        # Pacing between items
+        time.sleep(TWEET_SLEEP_SEC)
+    return results
+
+
+def embed_media_with_voyage(media_items: List[Dict]) -> List[Dict]:
+    """Compute embeddings per media item with no cross-item batching, with a progress bar.
+
+    For each media item, send a single request to Voyage MM embeddings with two entries:
+      - image-only: content = [{type: image_url, image_url: ...}]
+      - joint: [{type: text, text: image_desc?}, {type: image_url, image_url: ...}]
+
+    Includes internal pacing/retry at the client layer; returns dicts with
+    'joint_embedding' and 'image_embedding' when successful.
+    """
+    results: List[Dict] = []
+    for it in tqdm(media_items, desc="Media", unit="it"):
+        url = it['media_url']
+        desc = (it.get('image_desc') or '').strip()
+        extr = (it.get('extr_text') or '').strip()
+        # Build combined text from description + extracted text for richer joint embedding
+        text_parts = [p for p in [desc, extr] if p]
+        combined_text = "\n\n".join(text_parts)
+        # Build per-item request
+        item_inputs = [
+            {"content": [{"type": "image_url", "image_url": url}]},
+        ]
+        joint_content = [{"type": "image_url", "image_url": url}]
+        if combined_text:
+            joint_content.insert(0, {"type": "text", "text": combined_text})
+        item_inputs.append({"content": joint_content})
+
+        outer_attempts = 0
+        while True:
+            try:
+                vecs = voyage_multimodal_embeddings(inputs=item_inputs, input_type='document')
+                if len(vecs) >= 2:
+                    results.append({
+                        **it,
+                        'image_embedding': vecs[0],
+                        'joint_embedding': vecs[1],
+                    })
+                else:
+                    logger.warning(f"Voyage returned {len(vecs)} vectors for media {url}; skipping")
+                break
+            except Exception as e:
+                if isinstance(e, requests.HTTPError) and e.response is not None and e.response.status_code == 429 and outer_attempts < 3:
+                    outer_attempts += 1
+                    logger.warning("429 for media %s; cooling down %.1fs (outer attempt %d)", url, MEDIA_COOLDOWN_SEC, outer_attempts)
+                    time.sleep(MEDIA_COOLDOWN_SEC)
+                    continue
+                logger.error(f"Voyage error for media {url}: {e}")
+                break
+
+        # Pacing between items
+        time.sleep(MEDIA_SLEEP_SEC)
+
+    return results
+
 def main():
-    parser = argparse.ArgumentParser(description='Process tweets and media with embeddings')
+    parser = argparse.ArgumentParser(description='Process tweets and media with Voyage embeddings (sequential, no batching)')
+    # batch-size retained for backward compat but ignored
     parser.add_argument('--batch-size', type=int, default=100,
-                        help='Number of items to process per batch (default: 100)')
+                        help='Ignored: embeddings run sequentially without batching')
+    # GPU/CPU is irrelevant for hosted APIs; keep option for compatibility no-op.
     parser.add_argument('--force-cpu', action='store_true',
-                        help='Force using CPU even if GPU is available')
-    
+                        help='No-op (hosted embeddings).')
+
     args = parser.parse_args()
     
     if args.force_cpu:
-        global DEVICE
-        DEVICE = 'cpu'
-        # Reload models onto CPU if needed (adjust based on your setup)
-        # text_model.to(DEVICE)
-        # vision_model.to(DEVICE)
-        logger.info("Forcing CPU usage")
-    else:
-        logger.info(f"Using device: {DEVICE}")
+        logger.info("force-cpu flag ignored for hosted embeddings")
 
-    batch_size = args.batch_size
     total_processed_tweets = 0
     total_failed_tweets = 0
     total_processed_media = 0
     total_failed_media = 0
 
     # --- Fetch all IDs/Identifiers needing processing ---    
-    unprocessed_tweet_ids, unprocessed_media_identifiers = get_unprocessed_items(limit=batch_size)
+    # Fetch a large window to avoid doing client-side batches
+    unprocessed_tweet_ids, unprocessed_media_identifiers = get_unprocessed_items(limit=1_000_000)
 
     if not unprocessed_tweet_ids and not unprocessed_media_identifiers:
         logger.info("No items require embedding processing.")
         return
 
-    # --- Process Tweets in Batches ---    
-    logger.info(f"Processing {len(unprocessed_tweet_ids)} tweets in batches of {batch_size}...")
-    for i in range(0, len(unprocessed_tweet_ids), batch_size):
-        batch_ids = unprocessed_tweet_ids[i:i + batch_size]
-        logger.info(f"Fetching data for tweet batch {i // batch_size + 1}...")
-        tweet_batch_data = fetch_item_data(tweet_ids=batch_ids)
-        
-        if tweet_batch_data:
-            logger.info(f"Processing tweet batch {i // batch_size + 1} with {len(tweet_batch_data)} items...")
-            def process_tweet_item(item):
-                text = (item.get('text') or '').strip()
-                return get_text_embedding(text)
-
-            successful_tweets, failed_tweets = process_items_with_retries(
-                tweet_batch_data, 
-                'tweet',
-                process_tweet_item
-            )
-            # Update DB
-            processed_count = update_tweet_embeddings(successful_tweets)
-            total_processed_tweets += processed_count
-            total_failed_tweets += len(failed_tweets)
-            if failed_tweets:
-                 logger.error(f"Failed to process {len(failed_tweets)} tweets in batch {i // batch_size + 1} after retries.")
+    # --- Process Tweets Sequentially ---
+    if unprocessed_tweet_ids:
+        logger.info(f"Fetching data for {len(unprocessed_tweet_ids)} tweets...")
+        tweet_data = fetch_item_data(tweet_ids=unprocessed_tweet_ids)
+        if tweet_data:
+            logger.info(f"Processing {len(tweet_data)} tweets sequentially (no batching)...")
+            try:
+                successful_tweets = embed_tweets_with_voyage(tweet_data)
+                processed_count = update_tweet_embeddings(successful_tweets)
+                total_processed_tweets += processed_count
+            except Exception as e:
+                logger.error(f"Voyage tweet embedding error: {e}")
+                total_failed_tweets += len(tweet_data)
         else:
-            logger.warning(f"No data fetched for tweet IDs: {batch_ids}")
+            logger.warning("No tweet data fetched to embed.")
 
-    # --- Process Media in Batches ---    
-    logger.info(f"Processing {len(unprocessed_media_identifiers)} media items in batches of {batch_size}...")
-    for i in range(0, len(unprocessed_media_identifiers), batch_size):
-        batch_identifiers = unprocessed_media_identifiers[i:i + batch_size]
-        logger.info(f"Fetching data for media batch {i // batch_size + 1}...")
-        media_batch_data = fetch_item_data(media_identifiers=batch_identifiers)
-
-        if media_batch_data:
-            logger.info(f"Processing media batch {i // batch_size + 1} with {len(media_batch_data)} items...")
-            
-            # Define the processing function to get both embeddings
-            def process_media_item(item):
-                try:
-                    # This function needs to be modified to return both embeddings
-                    # We'll adjust utils.embedding_utils.get_image_embedding next
-                    joint_embedding, image_embedding = get_image_embedding(item['media_url'], item['image_desc'])
-                    return {'joint_embedding': joint_embedding, 'image_embedding': image_embedding}
-                except Exception as e:
-                    logger.error(f"Error in get_image_embedding for {item['media_url']}: {e}")
-                    raise e # Re-raise to be caught by process_items_with_retries
-
-            successful_media_results, failed_media = process_items_with_retries(
-                media_batch_data, 
-                'media',
-                process_media_item # Use the new processing function
-            )
-
-            # Adapt successful_media_results structure for update_media_embeddings
-            processed_items_for_update = []
-            # Determine which original items were successful. This is approximate.
-            # A robust implementation might involve process_items_with_retries returning identifiers.
-            original_items_dict = {(item['tweet_id'], item['media_url']): item for item in media_batch_data}
-            failed_ids = set((item['tweet_id'], item['media_url']) for item in failed_media)
-            successful_original_items = [item for item in media_batch_data if (item['tweet_id'], item['media_url']) not in failed_ids]
-
-            if len(successful_original_items) == len(successful_media_results):
-                for original_item, result_embeddings in zip(successful_original_items, successful_media_results):
-                    processed_item = {
-                        'tweet_id': original_item['tweet_id'],
-                        'media_url': original_item['media_url'],
-                        **result_embeddings # Add joint_embedding and image_embedding
+    # --- Process Media Sequentially ---
+    if unprocessed_media_identifiers:
+        logger.info(f"Fetching data for {len(unprocessed_media_identifiers)} media items...")
+        media_data = fetch_item_data(media_identifiers=unprocessed_media_identifiers)
+        if media_data:
+            logger.info(f"Processing {len(media_data)} media items sequentially (no batching)...")
+            try:
+                embedded_media = embed_media_with_voyage(media_data)
+                processed_count = update_media_embeddings([
+                    {
+                        'tweet_id': it['tweet_id'],
+                        'media_url': it['media_url'],
+                        'joint_embedding': it.get('joint_embedding'),
+                        'image_embedding': it.get('image_embedding'),
                     }
-                    processed_items_for_update.append(processed_item)
-            else:
-                # This case indicates a mismatch, log an error or handle appropriately
-                logger.error("Mismatch between successful items and results in media batch processing. Cannot reliably map results to items.")
-                # Decide how to proceed: skip update for this batch, or try a different mapping?
-                # For now, we'll proceed with an empty list, effectively skipping updates for this batch.
-                processed_items_for_update = [] 
-
-            # Update DB
-            processed_count = update_media_embeddings(processed_items_for_update)
-            total_processed_media += processed_count
-            total_failed_media += len(failed_media)
-            if failed_media:
-                 logger.error(f"Failed to process {len(failed_media)} media items in batch {i // batch_size + 1} after retries.")
+                    for it in embedded_media
+                    if it.get('joint_embedding') is not None and it.get('image_embedding') is not None
+                ])
+                total_processed_media += processed_count
+            except Exception as e:
+                logger.error(f"Voyage media embedding error: {e}")
+                total_failed_media += len(media_data)
         else:
-            logger.warning(f"No data fetched for media identifiers: {batch_identifiers}")
+            logger.warning("No media data fetched to embed.")
 
     # --- Final Summary ---    
     logger.info("--- Embedding Generation Summary ---")
