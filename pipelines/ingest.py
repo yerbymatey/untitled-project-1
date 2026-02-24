@@ -336,8 +336,10 @@ class BookmarkIngester:
 
         Returns a list of tweet dicts in the same shape as regular bookmarks so they
         can be fed through _insert_users / _insert_tweets unchanged.
+        Skips OG tweets with no resolvable user (FK constraint requires valid user_id).
         """
         og_tweets = {}
+        skipped = 0
         for bm in bookmarks:
             qs = bm.get('quoted_status')
             if not qs or not qs.get('id'):
@@ -345,6 +347,27 @@ class BookmarkIngester:
             og_id = qs['id']
             if og_id in og_tweets:
                 continue  # dedup
+
+            user = qs.get('user', {})
+            # Resolve user_id — must have one for FK constraint
+            user_id = (
+                user.get('id')
+                or user.get('screen_name')
+                or user.get('handle')
+                or user.get('legacy', {}).get('screen_name')
+            )
+            if not user_id:
+                # Try to parse from URL
+                og_url = qs.get('url', '')
+                import re as _re
+                match = _re.search(r"https?://(?:x|twitter)\.com/([^/?]+)/", og_url)
+                if match:
+                    user_id = match.group(1)
+                    user['screen_name'] = user_id
+
+            if not user_id:
+                skipped += 1
+                continue
 
             # Normalize the quoted_status into the same shape as a top-level bookmark
             og_tweet = {
@@ -358,13 +381,15 @@ class BookmarkIngester:
                 'is_quote_status': False,
                 'quoted_status': None,
                 'url': qs.get('url', ''),
-                'user': qs.get('user', {}),
+                'user': user,
                 'hashtags': qs.get('hashtags', []),
                 'urls': qs.get('urls', []),
                 'media': qs.get('media', {'has_media': False, 'items': []}),
             }
             og_tweets[og_id] = og_tweet
 
+        if skipped:
+            logger.warning(f"Skipped {skipped} OG tweets with no resolvable user")
         return list(og_tweets.values())
 
     def ingest_bookmarks(self, bookmarks: List[Dict], save_to_file: bool = True) -> Optional[str]:
