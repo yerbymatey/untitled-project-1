@@ -3,330 +3,574 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Semantic Tweet Search</title>
-    <script src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Bookmark Search</title>
     <style>
-        .tweet-container {
-            min-height: 100px; /* Ensure space for embed loading */
-            transition: all 0.3s ease;
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0a0b;
+            --surface: #141416;
+            --surface-hover: #1a1a1e;
+            --border: #222228;
+            --border-light: #2a2a32;
+            --text: #ededef;
+            --text-secondary: #8b8b96;
+            --text-tertiary: #5c5c66;
+            --accent: #6e6ef7;
+            --accent-dim: rgba(110, 110, 247, 0.12);
+            --green: #34d399;
+            --green-dim: rgba(52, 211, 153, 0.12);
+            --radius: 12px;
+            --radius-sm: 8px;
         }
-        .loading {
-            opacity: 0.5;
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
         }
-        /* Adjust column widths for three columns */
-        .results-column {
-            width: calc(33.333% - 1.333rem); /* (100% / 3) - (2/3 * gap) */
+
+        .app {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px;
         }
-        @media (max-width: 1024px) { /* Stack on medium screens and below */
-            .results-container {
-                flex-direction: column;
-            }
-            .results-column {
-                width: 100%; /* Full width when stacked */
-                margin-bottom: 2rem; /* Add space between stacked columns */
-            }
+
+        /* Header */
+        .header {
+            padding: 60px 0 40px;
+            text-align: center;
         }
-        .line-clamp-2 { /* Utility for description */
-            overflow: hidden;
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.03em;
+            margin-bottom: 6px;
         }
-        .line-clamp-3 { /* Utility for text */
-            overflow: hidden;
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 3;
+        .header p {
+            color: var(--text-tertiary);
+            font-size: 0.875rem;
         }
+
+        /* Search */
+        .search-bar {
+            position: relative;
+            margin-bottom: 16px;
+        }
+        .search-bar input {
+            width: 100%;
+            padding: 14px 18px;
+            padding-right: 50px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 0.9375rem;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .search-bar input::placeholder { color: var(--text-tertiary); }
+        .search-bar input:focus { border-color: var(--accent); }
+        .search-bar .search-icon {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-tertiary);
+            pointer-events: none;
+        }
+
+        /* Mode toggle */
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .mode-toggle {
+            display: inline-flex;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 3px;
+            gap: 2px;
+        }
+        .mode-toggle button {
+            padding: 7px 16px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .mode-toggle button.active {
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+        .result-count {
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+        }
+
+        /* Loading */
+        .loading-bar {
+            height: 2px;
+            background: var(--accent);
+            border-radius: 1px;
+            animation: loading 1.2s ease-in-out infinite;
+            margin-bottom: 24px;
+            display: none;
+        }
+        @keyframes loading {
+            0% { width: 0; opacity: 1; }
+            50% { width: 70%; opacity: 1; }
+            100% { width: 100%; opacity: 0; }
+        }
+
+        /* Sections */
+        .section { margin-bottom: 40px; }
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-tertiary);
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .show-more {
+            font-size: 0.75rem;
+            text-transform: none;
+            letter-spacing: normal;
+            color: var(--accent);
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            display: none;
+        }
+        .show-more:hover { text-decoration: underline; }
+
+        /* Tweet card */
+        .tweet-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 8px;
+            transition: border-color 0.15s, background 0.15s;
+            cursor: default;
+        }
+        .tweet-card:hover {
+            border-color: var(--border-light);
+            background: var(--surface-hover);
+        }
+
+        .tweet-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .tweet-author {
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+        .tweet-handle {
+            color: var(--text-tertiary);
+            font-size: 0.8125rem;
+        }
+        .tweet-date {
+            color: var(--text-tertiary);
+            font-size: 0.8125rem;
+        }
+        .tweet-date::before {
+            content: '·';
+            margin-right: 8px;
+        }
+
+        .tweet-text {
+            font-size: 0.9375rem;
+            line-height: 1.55;
+            margin-bottom: 10px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .tweet-media {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .tweet-media img {
+            border-radius: var(--radius-sm);
+            max-height: 200px;
+            max-width: 100%;
+            object-fit: cover;
+            border: 1px solid var(--border);
+        }
+
+        .tweet-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .score-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 3px 8px;
+            border-radius: 20px;
+            background: var(--green-dim);
+            color: var(--green);
+        }
+        .score-badge.type-badge {
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .tweet-link {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+        }
+        .tweet-link:hover { color: var(--text-secondary); }
+
+        .image-desc {
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            font-style: italic;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            background: rgba(110, 110, 247, 0.05);
+            border-radius: var(--radius-sm);
+            border-left: 2px solid var(--accent);
+        }
+
+        /* Quote tweet */
+        .quote-tweet {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            margin-bottom: 10px;
+            background: rgba(255,255,255,0.02);
+        }
+        .quote-tweet .tweet-meta { margin-bottom: 6px; }
+        .quote-tweet .tweet-text {
+            font-size: 0.875rem;
+            margin-bottom: 0;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-tertiary);
+        }
+        .empty-state .icon {
+            font-size: 2rem;
+            margin-bottom: 12px;
+        }
+        .empty-state p {
+            font-size: 0.875rem;
+        }
+
+        /* Three column layout for weighted mode */
+        .columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+        .columns.single-col {
+            grid-template-columns: 1fr;
+            max-width: 640px;
+        }
+        @media (max-width: 768px) {
+            .columns { grid-template-columns: 1fr; }
+            .header { padding: 40px 0 24px; }
+        }
+
+        /* Kbd hint */
+        .kbd-hint {
+            position: absolute;
+            right: 46px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            border: 1px solid var(--border);
+            padding: 1px 6px;
+            border-radius: 4px;
+            pointer-events: none;
+            opacity: 1;
+            transition: opacity 0.15s;
+        }
+        .search-bar input:focus ~ .kbd-hint { opacity: 0; }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-4xl font-bold text-center mb-8">Semantic Tweet Search</h1>
-        
-        <!-- Search Form -->
-        <div class="max-w-2xl mx-auto mb-8">
-            <div class="flex gap-4">
-                <input type="text" id="searchInput" 
-                       class="flex-1 px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                       placeholder="Enter your search query...">
-                <button onclick="performSearch(false)" 
-                        class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    Search
-                </button>
+<body>
+    <div class="app">
+        <div class="header">
+            <h1>Bookmark Search</h1>
+            <p>Semantic search across your saved tweets</p>
+        </div>
+
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="Search bookmarks..." autofocus>
+            <span class="kbd-hint">⏎</span>
+            <span class="search-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </span>
+        </div>
+
+        <div class="controls">
+            <div class="mode-toggle">
+                <button id="modeWeightedBtn" class="active" onclick="setMode('weighted')">Weighted</button>
+                <button id="modeTraditionalBtn" onclick="setMode('traditional')">Traditional</button>
             </div>
+            <span class="result-count" id="resultCount"></span>
         </div>
 
-        <!-- Mode Toggle -->
-        <div class="max-w-2xl mx-auto mb-4 text-center">
-            <label for="modeToggle" class="mr-2 text-gray-700">Search Mode:</label>
-            <div class="inline-flex bg-gray-200 rounded-lg p-1">
-                <button id="modeWeightedBtn" onclick="setSearchMode('weighted')" class="px-4 py-1 text-sm font-medium rounded-md text-white bg-blue-500 focus:outline-none">
-                    Weighted (3 Lists)
-                </button>
-                <button id="modeTraditionalBtn" onclick="setSearchMode('traditional')" class="px-4 py-1 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-300 focus:outline-none">
-                    Traditional (1 List)
-                </button>
-            </div>
-            <input type="hidden" id="searchMode" value="weighted"> <!-- Hidden input to store current mode -->
-        </div>
+        <div class="loading-bar" id="loadingBar"></div>
 
-        <!-- Results Stats (Initially hidden, shown based on mode) -->
-        <div id="resultsStats" class="max-w-4xl mx-auto mb-8 text-gray-600 hidden">
-            <p>Found <span id="tweetCount">0</span> text tweets, <span id="mediaCombinedCount">0</span> text+media matches, and <span id="mediaImageOnlyCount">0</span> image-only matches.</p>
-        </div>
-
-        <!-- Results Container -->
-        <div class="max-w-7xl mx-auto">
-            <div class="flex flex-wrap lg:flex-nowrap gap-8 results-container">
-                <!-- Text Tweets Column / Traditional Combined Column -->
-                <div class="results-column" id="column-text">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-2xl font-semibold">Text Results</h2>
-                        <button id="expandTweets" 
-                                onclick="performSearch(true)" 
-                                class="text-blue-500 hover:text-blue-700 hidden">
-                            Show More →
-                        </button>
-                    </div>
-                    <div id="tweetResults" class="space-y-4"></div>
-                </div>
-                
-                <!-- Text + Media Tweets Column (Combined Score) -->
-                <div class="results-column" id="column-combined">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-2xl font-semibold">Text + Media Results</h2>
-                        <button id="expandMediaCombined" 
-                                onclick="performSearch(true)" 
-                                class="text-blue-500 hover:text-blue-700 hidden">
-                            Show More →
-                        </button>
-                    </div>
-                    <div id="mediaCombinedResults" class="space-y-4"></div>
-                </div>
-
-                <!-- Image-Only Media Tweets Column -->
-                <div class="results-column" id="column-image">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-2xl font-semibold">Image-Only Results</h2>
-                        <button id="expandMediaImageOnly" 
-                                onclick="performSearch(true)" 
-                                class="text-blue-500 hover:text-blue-700 hidden">
-                            Show More →
-                        </button>
-                    </div>
-                    <div id="mediaImageOnlyResults" class="space-y-4"></div>
-                </div>
-            </div>
-        </div>
+        <div id="resultsArea"></div>
     </div>
 
     <script>
-        let lastQuery = '';
-        let isExpanded = false;
-        let currentSearchMode = 'weighted'; // Default mode
+    const $ = id => document.getElementById(id);
+    let currentMode = 'weighted';
+    let lastQuery = '';
 
-        function setSearchMode(mode) {
-            currentSearchMode = mode;
-            document.getElementById('searchMode').value = mode;
-            // Update button styles
-            const weightedBtn = document.getElementById('modeWeightedBtn');
-            const traditionalBtn = document.getElementById('modeTraditionalBtn');
-            if (mode === 'weighted') {
-                weightedBtn.classList.add('bg-blue-500', 'text-white');
-                weightedBtn.classList.remove('text-gray-600', 'hover:bg-gray-300');
-                traditionalBtn.classList.remove('bg-blue-500', 'text-white');
-                traditionalBtn.classList.add('text-gray-600', 'hover:bg-gray-300');
-            } else {
-                traditionalBtn.classList.add('bg-blue-500', 'text-white');
-                traditionalBtn.classList.remove('text-gray-600', 'hover:bg-gray-300');
-                weightedBtn.classList.remove('bg-blue-500', 'text-white');
-                weightedBtn.classList.add('text-gray-600', 'hover:bg-gray-300');
-            }
-            // Re-run search if query exists when mode changes
-            if (lastQuery) { 
-                console.log(`Mode changed to ${mode}, re-running search for: ${lastQuery}`);
-                performSearch(false); 
-            }
+    function setMode(mode) {
+        currentMode = mode;
+        $('modeWeightedBtn').classList.toggle('active', mode === 'weighted');
+        $('modeTraditionalBtn').classList.toggle('active', mode === 'traditional');
+        if (lastQuery) search(false);
+    }
+
+    $('searchInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') search(false);
+    });
+
+    async function search(expanded) {
+        const q = $('searchInput').value.trim() || lastQuery;
+        if (!q) return;
+        lastQuery = q;
+        $('searchInput').value = q;
+
+        const loading = $('loadingBar');
+        loading.style.display = 'block';
+        $('resultCount').textContent = '';
+
+        try {
+            const res = await fetch(`/search?q=${encodeURIComponent(q)}&expanded=${expanded}&mode=${currentMode}`);
+            const data = await res.json();
+            render(data, expanded);
+        } catch (e) {
+            $('resultsArea').innerHTML = '<div class="empty-state"><p>Something went wrong. Please try again.</p></div>';
+        } finally {
+            loading.style.display = 'none';
         }
+    }
 
-        async function performSearch(expandRequest = false) {
-            const query = document.getElementById('searchInput').value;
-            // If called by mode change, use lastQuery if current input is empty
-            const effectiveQuery = query || lastQuery;
-            if (!effectiveQuery) return;
-            
-            lastQuery = effectiveQuery; // Update last query
-            // Ensure search input reflects current query if triggered by mode change
-            if (!query && lastQuery) {
-                document.getElementById('searchInput').value = lastQuery;
-            }
+    function render(data, expanded) {
+        const area = $('resultsArea');
+        area.innerHTML = '';
 
-            isExpanded = expandRequest;
-            const mode = document.getElementById('searchMode').value;
-
-            // Clear results for new search
-            if (!isExpanded) {
-                document.getElementById('tweetResults').innerHTML = '';
-                document.getElementById('mediaCombinedResults').innerHTML = '';
-                document.getElementById('mediaImageOnlyResults').innerHTML = '';
-            }
-
-            // Adjust layout based on mode *before* fetch
-            const textCol = document.getElementById('column-text');
-            const combinedCol = document.getElementById('column-combined');
-            const imageCol = document.getElementById('column-image');
-            const textColHeader = textCol.querySelector('h2');
-            const statsContainer = document.getElementById('resultsStats');
-
-            if (mode === 'traditional') {
-                textCol.style.display = 'block';
-                textCol.style.width = '100%';
-                combinedCol.style.display = 'none';
-                imageCol.style.display = 'none';
-                textColHeader.textContent = "Traditional Combined Results";
-                statsContainer.style.display = 'none'; // Hide stats in traditional mode
-            } else { // Weighted mode
-                textCol.style.display = 'block';
-                combinedCol.style.display = 'block';
-                imageCol.style.display = 'block';
-                textCol.style.width = ''; // Reset width from potential traditional view
-                textColHeader.textContent = "Text Results";
-                statsContainer.style.display = 'block'; // Ensure stats are visible
-            }
-
-            document.body.style.cursor = 'wait';
-
-            try {
-                const response = await fetch(`/search?q=${encodeURIComponent(lastQuery)}&expanded=${isExpanded}&mode=${mode}`);
-                const data = await response.json();
-
-                if (mode === 'weighted') {
-                    // --- Weighted Mode Display ---
-                    statsContainer.classList.remove('hidden'); // Ensure stats div is not hidden
-                    document.getElementById('tweetCount').textContent = data.tweets?.length ?? 0;
-                    document.getElementById('mediaCombinedCount').textContent = data.media_combined?.length ?? 0;
-                    document.getElementById('mediaImageOnlyCount').textContent = data.media_image_only?.length ?? 0;
-
-                    displayResults(data.tweets, 'tweetResults', mode);
-                    displayResults(data.media_combined, 'mediaCombinedResults', mode);
-                    displayResults(data.media_image_only, 'mediaImageOnlyResults', mode);
-
-                    document.getElementById('expandTweets').style.display = 
-                        !isExpanded && data.has_more && data.tweets?.length > 0 ? 'block' : 'none';
-                    document.getElementById('expandMediaCombined').style.display = 
-                        !isExpanded && data.has_more && data.media_combined?.length > 0 ? 'block' : 'none';
-                    document.getElementById('expandMediaImageOnly').style.display = 
-                        !isExpanded && data.has_more && data.media_image_only?.length > 0 ? 'block' : 'none';
-                    
-                     // Trigger embed loading for all columns
-                    setTimeout(() => {
-                        if (window.twttr && window.twttr.widgets) {
-                            window.twttr.widgets.load(document.getElementById('tweetResults'));
-                            window.twttr.widgets.load(document.getElementById('mediaCombinedResults'));
-                            window.twttr.widgets.load(document.getElementById('mediaImageOnlyResults'));
-                        }
-                    }, 100);
-
-                } else if (mode === 'traditional') {
-                     // --- Traditional Mode Display ---
-                     displayResults(data.combined_results, 'tweetResults', mode); // Display in first column
-                     // Hide expand buttons (or implement pagination for combined list)
-                     document.getElementById('expandTweets').style.display = 'none'; 
-                     document.getElementById('expandMediaCombined').style.display = 'none';
-                     document.getElementById('expandMediaImageOnly').style.display = 'none';
-                     
-                     // Trigger embed loading for the first column
-                     setTimeout(() => {
-                        if (window.twttr && window.twttr.widgets) {
-                            window.twttr.widgets.load(document.getElementById('tweetResults'));
-                        }
-                    }, 100);
-                }
-
-            } catch (error) {
-                console.error('Error performing search:', error);
-                 document.getElementById('tweetResults').innerHTML = '<p class="text-red-500">Error fetching results.</p>';
-                 document.getElementById('mediaCombinedResults').innerHTML = ''; // Clear other columns on error
-                 document.getElementById('mediaImageOnlyResults').innerHTML = '';
-            } finally {
-                 document.body.style.cursor = 'default';
-            }
-        }
-
-        function displayResults(results, containerId, mode) {
-            const container = document.getElementById(containerId);
-            container.innerHTML = '';
-            if (!results || results.length === 0) {
-                container.innerHTML = '<p class="text-gray-500 italic">No results found.</p>';
+        if (currentMode === 'traditional') {
+            const results = data.combined_results || [];
+            $('resultCount').textContent = results.length ? `${results.length} results` : '';
+            if (!results.length) {
+                area.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>No results found</p></div>';
                 return;
             }
-            appendResults(results, containerId, mode);
-        }
+            const wrap = document.createElement('div');
+            wrap.className = 'columns single-col';
+            const sec = makeSection('Results', results, 'traditional', data.has_more && !expanded);
+            wrap.appendChild(sec);
+            area.appendChild(wrap);
+        } else {
+            const tweets = data.tweets || [];
+            const mediaCombined = data.media_combined || [];
+            const mediaImage = data.media_image_only || [];
+            const total = tweets.length + mediaCombined.length + mediaImage.length;
+            $('resultCount').textContent = total ? `${total} results` : '';
 
-        function appendResults(results, containerId, mode) {
-            const container = document.getElementById(containerId);
-            results.forEach(result => {
-                 const resultDiv = document.createElement('div');
-                 resultDiv.className = 'bg-white rounded-lg p-4 shadow tweet-container mb-4';
-
-                 // --- Similarity Score --- 
-                 const scoreDiv = document.createElement('div');
-                 scoreDiv.className = 'text-sm text-gray-500 mb-2';
-                 let scoreText = `Similarity: ${(result.similarity * 100).toFixed(1)}%`;
-                 if (mode === 'traditional') {
-                     // Add type info for traditional mode
-                     scoreText += ` (Type: ${result.type?.replace('_', ' ') ?? 'N/A'})`;
-                 } else if (containerId === 'mediaCombinedResults' && result.joint_similarity !== undefined && result.image_similarity !== undefined) {
-                     // Add breakdown for weighted combined media results
-                     scoreText += ` (Joint: ${(result.joint_similarity * 100).toFixed(0)}%, Image: ${(result.image_similarity * 100).toFixed(0)}%)`;
-                 }
-                 scoreDiv.textContent = scoreText;
-                 resultDiv.appendChild(scoreDiv);
-
-                // --- Tweet Text --- 
-                const textDiv = document.createElement('div');
-                textDiv.className = 'text-gray-700 mb-2 line-clamp-3';
-                textDiv.textContent = result.text; // Assumes 'text' is available for all result types
-                resultDiv.appendChild(textDiv);
-
-                 // --- Image Description --- 
-                 if (result.image_desc) {
-                    const descDiv = document.createElement('div');
-                    descDiv.className = 'text-sm text-gray-600 mt-2 italic line-clamp-2';
-                    descDiv.textContent = `[AI Desc]: ${result.image_desc}`;
-                    resultDiv.appendChild(descDiv);
-                }
-
-                 // --- Tweet Link --- 
-                const linkDiv = document.createElement('div');
-                linkDiv.className = 'text-sm text-blue-500 my-2';
-                const statusId = result.id || result.tweet_id; // Handle both tweet and media results
-                const tweetLink = statusId ? `https://twitter.com/x/status/${statusId}` : '#';
-                linkDiv.innerHTML = `<a href="${tweetLink}" target="_blank" rel="noopener">View on Twitter →</a>`;
-                resultDiv.appendChild(linkDiv);
-
-                 // --- Tweet Embed --- 
-                const tweetContainer = document.createElement('div');
-                tweetContainer.className = 'tweet-embed border-t pt-2 mt-2';
-                const embedHtml = statusId 
-                    ? `<blockquote class="twitter-tweet" data-conversation="none" data-dnt="true"><p lang="en" dir="ltr">Loading tweet...</p>&mdash; User <a href="https://twitter.com/x/status/${statusId}">Date</a></blockquote>`
-                    : '<p class="text-red-500">Embed requires tweet ID.</p>';
-                tweetContainer.innerHTML = embedHtml;
-                resultDiv.appendChild(tweetContainer);
-
-                container.appendChild(resultDiv);
-            });
-        }
-
-        // Handle enter key
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                performSearch(false);
+            if (!total) {
+                area.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>No results found</p></div>';
+                return;
             }
-        });
 
+            const wrap = document.createElement('div');
+            wrap.className = 'columns';
+            wrap.appendChild(makeSection('Text Matches', tweets, 'text', data.has_more && !expanded));
+            wrap.appendChild(makeSection('Text + Media', mediaCombined, 'combined', data.has_more && !expanded));
+            wrap.appendChild(makeSection('Image Only', mediaImage, 'image', data.has_more && !expanded));
+            area.appendChild(wrap);
+        }
+    }
+
+    function makeSection(title, results, type, showMore) {
+        const sec = document.createElement('div');
+        sec.className = 'section';
+
+        const header = document.createElement('div');
+        header.className = 'section-title';
+        header.innerHTML = `<span>${title}</span>`;
+        if (showMore && results.length) {
+            const btn = document.createElement('button');
+            btn.className = 'show-more';
+            btn.style.display = 'inline';
+            btn.textContent = 'Show more →';
+            btn.onclick = () => search(true);
+            header.appendChild(btn);
+        }
+        sec.appendChild(header);
+
+        if (!results.length) {
+            const empty = document.createElement('p');
+            empty.style.cssText = 'color: var(--text-tertiary); font-size: 0.8125rem; padding: 20px 0;';
+            empty.textContent = 'No matches';
+            sec.appendChild(empty);
+            return sec;
+        }
+
+        results.forEach(r => sec.appendChild(makeCard(r, type)));
+        return sec;
+    }
+
+    function makeCard(r, type) {
+        const card = document.createElement('div');
+        card.className = 'tweet-card';
+        const statusId = r.id || r.tweet_id;
+        const url = statusId ? `https://twitter.com/x/status/${statusId}` : '#';
+
+        // Meta line
+        const meta = document.createElement('div');
+        meta.className = 'tweet-meta';
+        if (r.author_name || r.username) {
+            if (r.author_name) meta.innerHTML += `<span class="tweet-author">${esc(r.author_name)}</span>`;
+            if (r.username) meta.innerHTML += `<span class="tweet-handle">@${esc(r.username)}</span>`;
+        }
+        if (r.created_at) {
+            const d = new Date(r.created_at);
+            const dateStr = isNaN(d) ? r.created_at : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            meta.innerHTML += `<span class="tweet-date">${esc(dateStr)}</span>`;
+        }
+        if (meta.innerHTML) card.appendChild(meta);
+
+        // Text
+        if (r.text) {
+            const text = document.createElement('div');
+            text.className = 'tweet-text';
+            text.textContent = r.text;
+            card.appendChild(text);
+        }
+
+        // Media thumbnails
+        const mediaUrls = r.media_urls || r.media || [];
+        if (mediaUrls.length) {
+            const mediaDiv = document.createElement('div');
+            mediaDiv.className = 'tweet-media';
+            (Array.isArray(mediaUrls) ? mediaUrls : [mediaUrls]).forEach(u => {
+                if (typeof u === 'string' && u.startsWith('http')) {
+                    const img = document.createElement('img');
+                    img.src = u;
+                    img.alt = 'media';
+                    img.loading = 'lazy';
+                    mediaDiv.appendChild(img);
+                }
+            });
+            if (mediaDiv.children.length) card.appendChild(mediaDiv);
+        }
+
+        // Image description
+        if (r.image_desc) {
+            const desc = document.createElement('div');
+            desc.className = 'image-desc';
+            desc.textContent = r.image_desc;
+            card.appendChild(desc);
+        }
+
+        // Quote tweet
+        if (r.quote_tweet || r.quoted_tweet) {
+            const qt = r.quote_tweet || r.quoted_tweet;
+            const quoteDiv = document.createElement('div');
+            quoteDiv.className = 'quote-tweet';
+            const qMeta = document.createElement('div');
+            qMeta.className = 'tweet-meta';
+            if (qt.author_name) qMeta.innerHTML += `<span class="tweet-author">${esc(qt.author_name)}</span>`;
+            if (qt.username) qMeta.innerHTML += `<span class="tweet-handle">@${esc(qt.username)}</span>`;
+            quoteDiv.appendChild(qMeta);
+            if (qt.text) {
+                const qText = document.createElement('div');
+                qText.className = 'tweet-text';
+                qText.textContent = qt.text;
+                quoteDiv.appendChild(qText);
+            }
+            card.appendChild(quoteDiv);
+        }
+
+        // Footer: score + link
+        const footer = document.createElement('div');
+        footer.className = 'tweet-footer';
+        const badges = document.createElement('div');
+        badges.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+
+        const score = document.createElement('span');
+        score.className = 'score-badge';
+        score.textContent = `${(r.similarity * 100).toFixed(1)}%`;
+        badges.appendChild(score);
+
+        if (type === 'traditional' && r.type) {
+            const tb = document.createElement('span');
+            tb.className = 'score-badge type-badge';
+            tb.textContent = r.type.replace('_', ' ');
+            badges.appendChild(tb);
+        }
+        if (type === 'combined' && r.joint_similarity != null) {
+            const jb = document.createElement('span');
+            jb.className = 'score-badge type-badge';
+            jb.textContent = `text ${(r.joint_similarity * 100).toFixed(0)}% · img ${((r.image_similarity || 0) * 100).toFixed(0)}%`;
+            badges.appendChild(jb);
+        }
+        footer.appendChild(badges);
+
+        const link = document.createElement('a');
+        link.className = 'tweet-link';
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'View on 𝕏 →';
+        footer.appendChild(link);
+
+        card.appendChild(footer);
+        return card;
+    }
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
     </script>
 </body>
-</html> 
+</html>
