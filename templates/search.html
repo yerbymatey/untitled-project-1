@@ -4,90 +4,161 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bookmark Search</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --bg: #0a0a0b;
-            --surface: #141416;
-            --surface-hover: #1a1a1e;
-            --border: #222228;
-            --border-light: #2a2a32;
-            --text: #ededef;
-            --text-secondary: #8b8b96;
-            --text-tertiary: #5c5c66;
-            --accent: #6e6ef7;
-            --accent-dim: rgba(110, 110, 247, 0.12);
+            --bg: #09090b;
+            --surface: #111113;
+            --surface-2: #18181b;
+            --surface-hover: #1c1c20;
+            --border: #27272a;
+            --border-light: #3f3f46;
+            --text: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-tertiary: #71717a;
+            --accent: #818cf8;
+            --accent-hover: #a5b4fc;
+            --accent-dim: rgba(129, 140, 248, 0.1);
+            --accent-dim-2: rgba(129, 140, 248, 0.06);
             --green: #34d399;
-            --green-dim: rgba(52, 211, 153, 0.12);
-            --radius: 12px;
-            --radius-sm: 8px;
+            --green-dim: rgba(52, 211, 153, 0.1);
+            --amber: #fbbf24;
+            --amber-dim: rgba(251, 191, 36, 0.1);
+            --radius: 14px;
+            --radius-sm: 10px;
+            --radius-xs: 6px;
+            --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.2);
+            --shadow-lg: 0 4px 32px rgba(0,0,0,0.4);
+            --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
             -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Subtle grid background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.015) 1px, transparent 0);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
         }
 
         .app {
-            max-width: 900px;
+            position: relative;
+            z-index: 1;
+            max-width: 960px;
             margin: 0 auto;
-            padding: 0 20px;
+            padding: 0 24px 80px;
         }
 
-        /* Header */
+        /* ── Header ── */
         .header {
-            padding: 60px 0 40px;
+            padding: 72px 0 48px;
             text-align: center;
         }
+        .header-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: var(--accent-dim);
+            margin-bottom: 20px;
+        }
+        .header-icon svg { color: var(--accent); }
         .header h1 {
-            font-size: 1.5rem;
-            font-weight: 600;
-            letter-spacing: -0.03em;
-            margin-bottom: 6px;
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--text) 0%, var(--text-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         .header p {
             color: var(--text-tertiary);
-            font-size: 0.875rem;
+            font-size: 0.9375rem;
+            font-weight: 400;
         }
 
-        /* Search */
+        /* ── Search ── */
+        .search-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
         .search-bar {
             position: relative;
-            margin-bottom: 16px;
-        }
-        .search-bar input {
-            width: 100%;
-            padding: 14px 18px;
-            padding-right: 50px;
+            display: flex;
+            align-items: center;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius);
+            transition: border-color var(--transition), box-shadow var(--transition);
+            overflow: hidden;
+        }
+        .search-bar:focus-within {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-dim), var(--shadow);
+        }
+        .search-bar .icon-left {
+            display: flex;
+            align-items: center;
+            padding-left: 16px;
+            color: var(--text-tertiary);
+            flex-shrink: 0;
+        }
+        .search-bar input {
+            flex: 1;
+            padding: 15px 14px;
+            background: transparent;
+            border: none;
             color: var(--text);
             font-size: 0.9375rem;
+            font-family: inherit;
             outline: none;
-            transition: border-color 0.15s;
         }
         .search-bar input::placeholder { color: var(--text-tertiary); }
-        .search-bar input:focus { border-color: var(--accent); }
-        .search-bar .search-icon {
-            position: absolute;
-            right: 16px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-tertiary);
-            pointer-events: none;
+        .search-bar .kbd-hint {
+            display: flex;
+            align-items: center;
+            padding-right: 14px;
+            flex-shrink: 0;
         }
+        .search-bar .kbd-hint kbd {
+            font-family: inherit;
+            font-size: 0.6875rem;
+            font-weight: 500;
+            color: var(--text-tertiary);
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            padding: 2px 7px;
+            border-radius: 5px;
+            line-height: 1.4;
+            transition: opacity var(--transition);
+        }
+        .search-bar:focus-within .kbd-hint kbd { opacity: 0; }
 
-        /* Mode toggle */
+        /* ── Controls ── */
         .controls {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 32px;
+            margin-bottom: 28px;
             gap: 12px;
             flex-wrap: wrap;
         }
@@ -100,81 +171,109 @@
             gap: 2px;
         }
         .mode-toggle button {
-            padding: 7px 16px;
+            position: relative;
+            padding: 8px 18px;
             border: none;
-            border-radius: 6px;
+            border-radius: calc(var(--radius-sm) - 3px);
             background: transparent;
-            color: var(--text-secondary);
+            color: var(--text-tertiary);
             font-size: 0.8125rem;
             font-weight: 500;
+            font-family: inherit;
             cursor: pointer;
-            transition: all 0.15s;
+            transition: all var(--transition);
+        }
+        .mode-toggle button:hover:not(.active) {
+            color: var(--text-secondary);
         }
         .mode-toggle button.active {
             background: var(--accent-dim);
             color: var(--accent);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         .result-count {
             font-size: 0.8125rem;
             color: var(--text-tertiary);
+            font-weight: 500;
         }
 
-        /* Loading */
+        /* ── Loading ── */
         .loading-bar {
+            position: relative;
             height: 2px;
-            background: var(--accent);
+            margin-bottom: 28px;
             border-radius: 1px;
-            animation: loading 1.2s ease-in-out infinite;
-            margin-bottom: 24px;
+            overflow: hidden;
             display: none;
+            background: var(--border);
         }
-        @keyframes loading {
-            0% { width: 0; opacity: 1; }
-            50% { width: 70%; opacity: 1; }
-            100% { width: 100%; opacity: 0; }
+        .loading-bar.active { display: block; }
+        .loading-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 40%;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            border-radius: 1px;
+            animation: shimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(350%); }
         }
 
-        /* Sections */
-        .section { margin-bottom: 40px; }
-        .section-title {
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-tertiary);
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--border);
+        /* ── Sections ── */
+        .section { margin-bottom: 36px; }
+        .section-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
         }
-        .show-more {
+        .section-label {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-tertiary);
+        }
+        .show-more-btn {
             font-size: 0.75rem;
-            text-transform: none;
-            letter-spacing: normal;
+            font-weight: 500;
             color: var(--accent);
             background: none;
             border: none;
             cursor: pointer;
-            font-weight: 500;
-            display: none;
+            font-family: inherit;
+            padding: 2px 0;
+            transition: color var(--transition);
         }
-        .show-more:hover { text-decoration: underline; }
+        .show-more-btn:hover { color: var(--accent-hover); }
 
-        /* Tweet card */
+        /* ── Tweet Card ── */
         .tweet-card {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 16px;
-            margin-bottom: 8px;
-            transition: border-color 0.15s, background 0.15s;
-            cursor: default;
+            padding: 18px;
+            margin-bottom: 10px;
+            transition: border-color var(--transition), background var(--transition), transform var(--transition);
         }
         .tweet-card:hover {
             border-color: var(--border-light);
             background: var(--surface-hover);
+            transform: translateY(-1px);
+        }
+
+        /* Card entrance animation */
+        .tweet-card { animation: cardIn 0.3s ease-out both; }
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .tweet-meta {
@@ -182,6 +281,26 @@
             align-items: center;
             gap: 8px;
             margin-bottom: 10px;
+            flex-wrap: wrap;
+            min-height: 20px;
+        }
+        .tweet-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--accent-dim);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+        .tweet-author-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             flex-wrap: wrap;
         }
         .tweet-author {
@@ -192,166 +311,335 @@
             color: var(--text-tertiary);
             font-size: 0.8125rem;
         }
+        .tweet-dot {
+            color: var(--text-tertiary);
+            font-size: 0.75rem;
+        }
         .tweet-date {
             color: var(--text-tertiary);
             font-size: 0.8125rem;
         }
-        .tweet-date::before {
-            content: '·';
-            margin-right: 8px;
-        }
 
         .tweet-text {
             font-size: 0.9375rem;
-            line-height: 1.55;
-            margin-bottom: 10px;
+            line-height: 1.6;
+            margin-bottom: 12px;
             white-space: pre-wrap;
             word-break: break-word;
+            color: var(--text);
         }
+        .tweet-text:last-child { margin-bottom: 0; }
 
+        /* ── Media ── */
         .tweet-media {
-            display: flex;
+            display: grid;
             gap: 6px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-        .tweet-media img {
+            margin-bottom: 12px;
             border-radius: var(--radius-sm);
-            max-height: 200px;
-            max-width: 100%;
+            overflow: hidden;
+        }
+        .tweet-media.count-1 { grid-template-columns: 1fr; }
+        .tweet-media.count-2 { grid-template-columns: 1fr 1fr; }
+        .tweet-media.count-3,
+        .tweet-media.count-4 { grid-template-columns: 1fr 1fr; }
+        .tweet-media img {
+            width: 100%;
+            height: 100%;
             object-fit: cover;
+            display: block;
+            border-radius: var(--radius-xs);
             border: 1px solid var(--border);
+            cursor: pointer;
+            transition: opacity var(--transition);
+            max-height: 280px;
+        }
+        .tweet-media img:hover { opacity: 0.85; }
+
+        .image-desc {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            background: var(--accent-dim-2);
+            border-radius: var(--radius-sm);
+            border-left: 2px solid var(--accent);
+            line-height: 1.5;
         }
 
+        /* ── Quote Tweet ── */
+        .quote-tweet {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            margin-bottom: 12px;
+            background: var(--surface-2);
+            transition: border-color var(--transition);
+        }
+        .tweet-card:hover .quote-tweet { border-color: var(--border-light); }
+        .quote-tweet .tweet-meta { margin-bottom: 6px; }
+        .quote-tweet .tweet-text {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0;
+        }
+        .quote-tweet .tweet-media img { max-height: 180px; }
+
+        /* ── Footer ── */
         .tweet-footer {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
+            gap: 10px;
             flex-wrap: wrap;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            margin-top: 2px;
         }
 
-        .score-badge {
+        .badge-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .badge {
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            padding: 3px 8px;
-            border-radius: 20px;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 100px;
+            letter-spacing: 0.01em;
+        }
+        .badge.score {
             background: var(--green-dim);
             color: var(--green);
         }
-        .score-badge.type-badge {
+        .badge.type {
             background: var(--accent-dim);
             color: var(--accent);
+        }
+        .badge.detail {
+            background: var(--amber-dim);
+            color: var(--amber);
+        }
+
+        /* Score bar visualization */
+        .score-bar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .score-bar {
+            width: 48px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--border);
+            overflow: hidden;
+        }
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            background: var(--green);
+            transition: width 0.5s ease-out;
         }
 
         .tweet-link {
             font-size: 0.75rem;
+            font-weight: 500;
             color: var(--text-tertiary);
             text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: color var(--transition);
+            flex-shrink: 0;
         }
         .tweet-link:hover { color: var(--text-secondary); }
-
-        .image-desc {
-            font-size: 0.8125rem;
-            color: var(--text-tertiary);
-            font-style: italic;
-            margin-bottom: 10px;
-            padding: 8px 12px;
-            background: rgba(110, 110, 247, 0.05);
-            border-radius: var(--radius-sm);
-            border-left: 2px solid var(--accent);
+        .tweet-link svg {
+            width: 12px;
+            height: 12px;
         }
 
-        /* Quote tweet */
-        .quote-tweet {
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 12px;
-            margin-bottom: 10px;
-            background: rgba(255,255,255,0.02);
-        }
-        .quote-tweet .tweet-meta { margin-bottom: 6px; }
-        .quote-tweet .tweet-text {
-            font-size: 0.875rem;
-            margin-bottom: 0;
-        }
-
-        /* Empty state */
+        /* ── Empty State ── */
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 80px 20px;
             color: var(--text-tertiary);
         }
         .empty-state .icon {
-            font-size: 2rem;
-            margin-bottom: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            font-size: 1.5rem;
+            margin-bottom: 16px;
         }
         .empty-state p {
-            font-size: 0.875rem;
+            font-size: 0.9375rem;
+            font-weight: 500;
+        }
+        .empty-state .sub {
+            font-size: 0.8125rem;
+            font-weight: 400;
+            color: var(--text-tertiary);
+            margin-top: 4px;
         }
 
-        /* Three column layout for weighted mode */
+        /* ── Column layouts ── */
         .columns {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
             gap: 20px;
+            align-items: start;
         }
         .columns.single-col {
             grid-template-columns: 1fr;
-            max-width: 640px;
-        }
-        @media (max-width: 768px) {
-            .columns { grid-template-columns: 1fr; }
-            .header { padding: 40px 0 24px; }
+            max-width: 680px;
         }
 
-        /* Kbd hint */
-        .kbd-hint {
-            position: absolute;
-            right: 46px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 0.6875rem;
-            color: var(--text-tertiary);
-            border: 1px solid var(--border);
-            padding: 1px 6px;
-            border-radius: 4px;
-            pointer-events: none;
-            opacity: 1;
-            transition: opacity 0.15s;
+        /* ── Lightbox ── */
+        .lightbox {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: zoom-out;
+            animation: fadeIn 0.2s ease;
+            padding: 40px;
         }
-        .search-bar input:focus ~ .kbd-hint { opacity: 0; }
+        .lightbox img {
+            max-width: 90vw;
+            max-height: 90vh;
+            object-fit: contain;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 900px) {
+            .columns { grid-template-columns: 1fr 1fr; }
+            .columns > .section:nth-child(3) {
+                grid-column: 1 / -1;
+            }
+        }
+        @media (max-width: 640px) {
+            .columns { grid-template-columns: 1fr; }
+            .header { padding: 48px 0 32px; }
+            .header h1 { font-size: 1.375rem; }
+            .app { padding: 0 16px 60px; }
+            .tweet-card { padding: 14px; }
+            .tweet-media img { max-height: 200px; }
+        }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+        /* ── No results animation ── */
+        .section-empty {
+            color: var(--text-tertiary);
+            font-size: 0.8125rem;
+            padding: 24px 0;
+            text-align: center;
+        }
+
+        /* Initial state */
+        .initial-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+        .initial-state .hint {
+            color: var(--text-tertiary);
+            font-size: 0.875rem;
+        }
+        .initial-state .examples {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+        .initial-state .example-chip {
+            padding: 7px 14px;
+            border-radius: 100px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            cursor: pointer;
+            transition: all var(--transition);
+            font-family: inherit;
+        }
+        .initial-state .example-chip:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim-2);
+        }
     </style>
 </head>
 <body>
     <div class="app">
         <div class="header">
+            <div class="header-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+            </div>
             <h1>Bookmark Search</h1>
             <p>Semantic search across your saved tweets</p>
         </div>
 
-        <div class="search-bar">
-            <input type="text" id="searchInput" placeholder="Search bookmarks..." autofocus>
-            <span class="kbd-hint">⏎</span>
-            <span class="search-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            </span>
+        <div class="search-container">
+            <div class="search-bar">
+                <span class="icon-left">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </span>
+                <input type="text" id="searchInput" placeholder="Search bookmarks..." autofocus>
+                <span class="kbd-hint"><kbd>↵</kbd></span>
+            </div>
         </div>
 
         <div class="controls">
             <div class="mode-toggle">
-                <button id="modeWeightedBtn" class="active" onclick="setMode('weighted')">Weighted</button>
-                <button id="modeTraditionalBtn" onclick="setMode('traditional')">Traditional</button>
+                <button id="modeWeightedBtn" class="active" onclick="setMode('weighted')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Weighted
+                </button>
+                <button id="modeTraditionalBtn" onclick="setMode('traditional')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>Traditional
+                </button>
             </div>
             <span class="result-count" id="resultCount"></span>
         </div>
 
         <div class="loading-bar" id="loadingBar"></div>
 
-        <div id="resultsArea"></div>
+        <div id="resultsArea">
+            <div class="initial-state">
+                <p class="hint">Try searching for topics, people, or ideas</p>
+                <div class="examples">
+                    <button class="example-chip" onclick="exampleSearch(this)">machine learning</button>
+                    <button class="example-chip" onclick="exampleSearch(this)">startup advice</button>
+                    <button class="example-chip" onclick="exampleSearch(this)">funny tweets</button>
+                    <button class="example-chip" onclick="exampleSearch(this)">design inspiration</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -366,8 +654,25 @@
         if (lastQuery) search(false);
     }
 
+    function exampleSearch(el) {
+        $('searchInput').value = el.textContent;
+        search(false);
+    }
+
     $('searchInput').addEventListener('keydown', e => {
         if (e.key === 'Enter') search(false);
+    });
+
+    // Global keyboard shortcut: / to focus search
+    document.addEventListener('keydown', e => {
+        if (e.key === '/' && document.activeElement !== $('searchInput')) {
+            e.preventDefault();
+            $('searchInput').focus();
+        }
+        if (e.key === 'Escape') {
+            $('searchInput').blur();
+            closeLightbox();
+        }
     });
 
     async function search(expanded) {
@@ -377,17 +682,23 @@
         $('searchInput').value = q;
 
         const loading = $('loadingBar');
-        loading.style.display = 'block';
-        $('resultCount').textContent = '';
+        loading.classList.add('active');
+        $('resultCount').textContent = 'Searching…';
 
         try {
             const res = await fetch(`/search?q=${encodeURIComponent(q)}&expanded=${expanded}&mode=${currentMode}`);
             const data = await res.json();
             render(data, expanded);
         } catch (e) {
-            $('resultsArea').innerHTML = '<div class="empty-state"><p>Something went wrong. Please try again.</p></div>';
+            $('resultsArea').innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">⚠️</div>
+                    <p>Something went wrong</p>
+                    <p class="sub">Please try again</p>
+                </div>`;
+            $('resultCount').textContent = '';
         } finally {
-            loading.style.display = 'none';
+            loading.classList.remove('active');
         }
     }
 
@@ -397,30 +708,27 @@
 
         if (currentMode === 'traditional') {
             const results = data.combined_results || [];
-            $('resultCount').textContent = results.length ? `${results.length} results` : '';
+            $('resultCount').textContent = results.length ? `${results.length} result${results.length !== 1 ? 's' : ''}` : '';
             if (!results.length) {
-                area.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>No results found</p></div>';
+                area.innerHTML = emptyHTML();
                 return;
             }
-            const wrap = document.createElement('div');
-            wrap.className = 'columns single-col';
-            const sec = makeSection('Results', results, 'traditional', data.has_more && !expanded);
-            wrap.appendChild(sec);
+            const wrap = el('div', 'columns single-col');
+            wrap.appendChild(makeSection('Results', results, 'traditional', data.has_more && !expanded));
             area.appendChild(wrap);
         } else {
             const tweets = data.tweets || [];
             const mediaCombined = data.media_combined || [];
             const mediaImage = data.media_image_only || [];
             const total = tweets.length + mediaCombined.length + mediaImage.length;
-            $('resultCount').textContent = total ? `${total} results` : '';
+            $('resultCount').textContent = total ? `${total} result${total !== 1 ? 's' : ''}` : '';
 
             if (!total) {
-                area.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>No results found</p></div>';
+                area.innerHTML = emptyHTML();
                 return;
             }
 
-            const wrap = document.createElement('div');
-            wrap.className = 'columns';
+            const wrap = el('div', 'columns');
             wrap.appendChild(makeSection('Text Matches', tweets, 'text', data.has_more && !expanded));
             wrap.appendChild(makeSection('Text + Media', mediaCombined, 'combined', data.has_more && !expanded));
             wrap.appendChild(makeSection('Image Only', mediaImage, 'image', data.has_more && !expanded));
@@ -428,17 +736,26 @@
         }
     }
 
-    function makeSection(title, results, type, showMore) {
-        const sec = document.createElement('div');
-        sec.className = 'section';
+    function emptyHTML() {
+        return `<div class="empty-state"><div class="icon">🔍</div><p>No results found</p><p class="sub">Try different keywords or switch search mode</p></div>`;
+    }
 
-        const header = document.createElement('div');
-        header.className = 'section-title';
-        header.innerHTML = `<span>${title}</span>`;
+    function el(tag, cls) {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        return e;
+    }
+
+    function makeSection(title, results, type, showMore) {
+        const sec = el('div', 'section');
+
+        const header = el('div', 'section-header');
+        const label = el('span', 'section-label');
+        label.textContent = title;
+        header.appendChild(label);
+
         if (showMore && results.length) {
-            const btn = document.createElement('button');
-            btn.className = 'show-more';
-            btn.style.display = 'inline';
+            const btn = el('button', 'show-more-btn');
             btn.textContent = 'Show more →';
             btn.onclick = () => search(true);
             header.appendChild(btn);
@@ -446,66 +763,89 @@
         sec.appendChild(header);
 
         if (!results.length) {
-            const empty = document.createElement('p');
-            empty.style.cssText = 'color: var(--text-tertiary); font-size: 0.8125rem; padding: 20px 0;';
+            const empty = el('p', 'section-empty');
             empty.textContent = 'No matches';
             sec.appendChild(empty);
             return sec;
         }
 
-        results.forEach(r => sec.appendChild(makeCard(r, type)));
+        results.forEach((r, i) => {
+            const card = makeCard(r, type);
+            card.style.animationDelay = `${i * 0.04}s`;
+            sec.appendChild(card);
+        });
         return sec;
     }
 
     function makeCard(r, type) {
-        const card = document.createElement('div');
-        card.className = 'tweet-card';
+        const card = el('div', 'tweet-card');
         const statusId = r.id || r.tweet_id;
         const url = statusId ? `https://twitter.com/x/status/${statusId}` : '#';
 
         // Meta line
-        const meta = document.createElement('div');
-        meta.className = 'tweet-meta';
-        if (r.author_name || r.username) {
-            if (r.author_name) meta.innerHTML += `<span class="tweet-author">${esc(r.author_name)}</span>`;
-            if (r.username) meta.innerHTML += `<span class="tweet-handle">@${esc(r.username)}</span>`;
+        const meta = el('div', 'tweet-meta');
+        const hasAuthor = r.author_name || r.username;
+
+        if (hasAuthor) {
+            const avatar = el('div', 'tweet-avatar');
+            avatar.textContent = (r.author_name || r.username || '?')[0].toUpperCase();
+            meta.appendChild(avatar);
+
+            const authorGroup = el('div', 'tweet-author-group');
+            if (r.author_name) {
+                const name = el('span', 'tweet-author');
+                name.textContent = r.author_name;
+                authorGroup.appendChild(name);
+            }
+            if (r.username) {
+                const handle = el('span', 'tweet-handle');
+                handle.textContent = `@${r.username}`;
+                authorGroup.appendChild(handle);
+            }
+            meta.appendChild(authorGroup);
         }
+
         if (r.created_at) {
+            if (hasAuthor) {
+                const dot = el('span', 'tweet-dot');
+                dot.textContent = '·';
+                meta.appendChild(dot);
+            }
             const d = new Date(r.created_at);
-            const dateStr = isNaN(d) ? r.created_at : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            meta.innerHTML += `<span class="tweet-date">${esc(dateStr)}</span>`;
+            const dateEl = el('span', 'tweet-date');
+            dateEl.textContent = isNaN(d) ? r.created_at : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            meta.appendChild(dateEl);
         }
-        if (meta.innerHTML) card.appendChild(meta);
+
+        if (meta.children.length) card.appendChild(meta);
 
         // Text
         if (r.text) {
-            const text = document.createElement('div');
-            text.className = 'tweet-text';
+            const text = el('div', 'tweet-text');
             text.textContent = r.text;
             card.appendChild(text);
         }
 
-        // Media thumbnails
+        // Media
         const mediaUrls = r.media_urls || r.media || [];
-        if (mediaUrls.length) {
-            const mediaDiv = document.createElement('div');
-            mediaDiv.className = 'tweet-media';
-            (Array.isArray(mediaUrls) ? mediaUrls : [mediaUrls]).forEach(u => {
-                if (typeof u === 'string' && u.startsWith('http')) {
-                    const img = document.createElement('img');
-                    img.src = u;
-                    img.alt = 'media';
-                    img.loading = 'lazy';
-                    mediaDiv.appendChild(img);
-                }
+        const urls = Array.isArray(mediaUrls) ? mediaUrls : [mediaUrls];
+        const validUrls = urls.filter(u => typeof u === 'string' && u.startsWith('http'));
+        if (validUrls.length) {
+            const mediaDiv = el('div', `tweet-media count-${Math.min(validUrls.length, 4)}`);
+            validUrls.forEach(u => {
+                const img = document.createElement('img');
+                img.src = u;
+                img.alt = 'media';
+                img.loading = 'lazy';
+                img.onclick = (e) => { e.stopPropagation(); openLightbox(u); };
+                mediaDiv.appendChild(img);
             });
-            if (mediaDiv.children.length) card.appendChild(mediaDiv);
+            card.appendChild(mediaDiv);
         }
 
         // Image description
         if (r.image_desc) {
-            const desc = document.createElement('div');
-            desc.className = 'image-desc';
+            const desc = el('div', 'image-desc');
             desc.textContent = r.image_desc;
             card.appendChild(desc);
         }
@@ -513,42 +853,84 @@
         // Quote tweet
         if (r.quote_tweet || r.quoted_tweet) {
             const qt = r.quote_tweet || r.quoted_tweet;
-            const quoteDiv = document.createElement('div');
-            quoteDiv.className = 'quote-tweet';
-            const qMeta = document.createElement('div');
-            qMeta.className = 'tweet-meta';
-            if (qt.author_name) qMeta.innerHTML += `<span class="tweet-author">${esc(qt.author_name)}</span>`;
-            if (qt.username) qMeta.innerHTML += `<span class="tweet-handle">@${esc(qt.username)}</span>`;
-            quoteDiv.appendChild(qMeta);
+            const quoteDiv = el('div', 'quote-tweet');
+
+            const qMeta = el('div', 'tweet-meta');
+            if (qt.author_name || qt.username) {
+                const qAvatar = el('div', 'tweet-avatar');
+                qAvatar.textContent = (qt.author_name || qt.username || '?')[0].toUpperCase();
+                qAvatar.style.width = '22px';
+                qAvatar.style.height = '22px';
+                qAvatar.style.fontSize = '0.625rem';
+                qMeta.appendChild(qAvatar);
+
+                const qAuthorGroup = el('div', 'tweet-author-group');
+                if (qt.author_name) {
+                    const n = el('span', 'tweet-author');
+                    n.textContent = qt.author_name;
+                    n.style.fontSize = '0.8125rem';
+                    qAuthorGroup.appendChild(n);
+                }
+                if (qt.username) {
+                    const h = el('span', 'tweet-handle');
+                    h.textContent = `@${qt.username}`;
+                    qAuthorGroup.appendChild(h);
+                }
+                qMeta.appendChild(qAuthorGroup);
+            }
+            if (qMeta.children.length) quoteDiv.appendChild(qMeta);
+
             if (qt.text) {
-                const qText = document.createElement('div');
-                qText.className = 'tweet-text';
+                const qText = el('div', 'tweet-text');
                 qText.textContent = qt.text;
                 quoteDiv.appendChild(qText);
             }
+
+            // Quote tweet media
+            const qtMedia = qt.media_urls || qt.media || [];
+            const qtUrls = (Array.isArray(qtMedia) ? qtMedia : [qtMedia]).filter(u => typeof u === 'string' && u.startsWith('http'));
+            if (qtUrls.length) {
+                const qMediaDiv = el('div', `tweet-media count-${Math.min(qtUrls.length, 4)}`);
+                qtUrls.forEach(u => {
+                    const img = document.createElement('img');
+                    img.src = u;
+                    img.alt = 'media';
+                    img.loading = 'lazy';
+                    img.onclick = (e) => { e.stopPropagation(); openLightbox(u); };
+                    qMediaDiv.appendChild(img);
+                });
+                quoteDiv.appendChild(qMediaDiv);
+            }
+
             card.appendChild(quoteDiv);
         }
 
-        // Footer: score + link
-        const footer = document.createElement('div');
-        footer.className = 'tweet-footer';
-        const badges = document.createElement('div');
-        badges.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+        // Footer
+        const footer = el('div', 'tweet-footer');
+        const badges = el('div', 'badge-row');
 
-        const score = document.createElement('span');
-        score.className = 'score-badge';
-        score.textContent = `${(r.similarity * 100).toFixed(1)}%`;
-        badges.appendChild(score);
+        // Score with bar
+        if (r.similarity != null) {
+            const scoreWrap = el('div', 'score-bar-wrap');
+            const badge = el('span', 'badge score');
+            badge.textContent = `${(r.similarity * 100).toFixed(1)}%`;
+            scoreWrap.appendChild(badge);
+
+            const bar = el('div', 'score-bar');
+            const fill = el('div', 'score-bar-fill');
+            fill.style.width = `${Math.min(r.similarity * 100, 100)}%`;
+            bar.appendChild(fill);
+            scoreWrap.appendChild(bar);
+            badges.appendChild(scoreWrap);
+        }
 
         if (type === 'traditional' && r.type) {
-            const tb = document.createElement('span');
-            tb.className = 'score-badge type-badge';
+            const tb = el('span', 'badge type');
             tb.textContent = r.type.replace('_', ' ');
             badges.appendChild(tb);
         }
         if (type === 'combined' && r.joint_similarity != null) {
-            const jb = document.createElement('span');
-            jb.className = 'score-badge type-badge';
+            const jb = el('span', 'badge detail');
             jb.textContent = `text ${(r.joint_similarity * 100).toFixed(0)}% · img ${((r.image_similarity || 0) * 100).toFixed(0)}%`;
             badges.appendChild(jb);
         }
@@ -559,17 +941,26 @@
         link.href = url;
         link.target = '_blank';
         link.rel = 'noopener';
-        link.textContent = 'View on 𝕏 →';
+        link.innerHTML = `View on 𝕏 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
         footer.appendChild(link);
 
         card.appendChild(footer);
         return card;
     }
 
-    function esc(s) {
-        const d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
+    // Lightbox
+    function openLightbox(src) {
+        closeLightbox();
+        const lb = el('div', 'lightbox');
+        lb.onclick = closeLightbox;
+        const img = document.createElement('img');
+        img.src = src;
+        lb.appendChild(img);
+        document.body.appendChild(lb);
+    }
+
+    function closeLightbox() {
+        document.querySelectorAll('.lightbox').forEach(e => e.remove());
     }
     </script>
 </body>
