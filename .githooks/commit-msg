@@ -1,0 +1,22 @@
+#!/usr/bin/env zsh
+# Commit message hook: enforce basic format
+
+MSG=$(cat "$1")
+
+# 1. Reject empty or too-short messages
+if [ ${#MSG} -lt 10 ]; then
+    echo "❌ BLOCKED: Commit message too short (min 10 chars)."
+    exit 1
+fi
+
+# 2. Reject WIP commits on main/hosted (allow on feature branches)
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "detached")
+if [[ "$BRANCH" == "main" || "$BRANCH" == "hosted" ]]; then
+    if echo "$MSG" | grep -qiE '^(wip|fixup|squash)'; then
+        echo "⚠️  WARNING: WIP/fixup commit on $BRANCH branch."
+        echo "   Consider using a feature branch instead."
+        # Warning only, not blocking
+    fi
+fi
+
+echo "✓ commit message ok"

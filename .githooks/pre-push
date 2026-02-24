@@ -1,0 +1,18 @@
+#!/usr/bin/env zsh
+# Pre-push hook: prevent accidental pushes
+
+set -e
+
+# 1. Require confirmation file for push
+# Create .push-approved to allow push, removed after use
+if [ ! -f ".push-approved" ]; then
+    echo "❌ BLOCKED: Push requires explicit approval."
+    echo "   Run: touch .push-approved"
+    echo "   Then retry your push."
+    echo "   (This is a safety measure — ask gene before pushing to public repos)"
+    exit 1
+fi
+
+# Remove the approval file after use (one-shot)
+rm -f .push-approved
+echo "✓ push approved (one-time token consumed)"

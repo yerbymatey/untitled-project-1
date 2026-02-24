@@ -1,0 +1,31 @@
+#!/usr/bin/env zsh
+# Pre-commit hook: basic hygiene checks
+
+set -e
+
+# 1. Block commits of .env files
+if git diff --cached --name-only | grep -qE '^\\.env$'; then
+    echo "❌ BLOCKED: .env file staged for commit. Never commit credentials."
+    exit 1
+fi
+
+# 2. Block commits with secrets patterns
+STAGED=$(git diff --cached -U0 --no-color)
+if echo "$STAGED" | grep -qiE '(api_key|auth_token|cookie_string|csrf_token|password)\s*=\s*["\x27][^"\x27]{10,}'; then
+    echo "⚠️  WARNING: Possible secret detected in staged changes."
+    echo "   Review carefully before committing."
+    # Warning only, not blocking — some test fixtures may look like secrets
+fi
+
+# 3. Check for syntax errors in modified Python files
+PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+if [ -n "$PYTHON_FILES" ]; then
+    for f in $PYTHON_FILES; do
+        if ! python3 -c "import ast; ast.parse(open('$f').read())" 2>/dev/null; then
+            echo "❌ BLOCKED: Syntax error in $f"
+            exit 1
+        fi
+    done
+fi
+
+echo "✓ pre-commit checks passed"
