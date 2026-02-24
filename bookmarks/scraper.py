@@ -155,7 +155,9 @@ class TwitterBookmarkScraper:
         if "entities" in legacy and "urls" in legacy["entities"]:
             for url_entity in legacy["entities"]["urls"]:
                 url_item = {
-                    "url": url_entity.get("url")
+                    "url": url_entity.get("url"),
+                    "expanded_url": url_entity.get("expanded_url"),
+                    "display_url": url_entity.get("display_url"),
                 }
                 urls.append(url_item)
         
@@ -199,7 +201,9 @@ class TwitterBookmarkScraper:
                 if "entities" in quoted_legacy and "urls" in quoted_legacy["entities"]:
                     for url_entity in quoted_legacy["entities"]["urls"]:
                         url_item = {
-                            "url": url_entity.get("url")
+                            "url": url_entity.get("url"),
+                            "expanded_url": url_entity.get("expanded_url"),
+                            "display_url": url_entity.get("display_url"),
                         }
                         quoted_urls.append(url_item)
                 
