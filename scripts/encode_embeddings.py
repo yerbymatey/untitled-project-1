@@ -257,18 +257,27 @@ def fetch_item_data(tweet_ids=None, media_identifiers=None):
     items = []
     with get_db_session() as session:
         if tweet_ids:
-            # Fetch tweet data
+            # Fetch tweet data with optional quoted tweet context
             tweet_query = """
-            SELECT id, text
-            FROM tweets
-            WHERE id = ANY(%s)
+            SELECT t.id, t.text, t.quoted_tweet_id,
+                   qt.text AS quoted_text,
+                   qu.id AS quoted_user_id
+            FROM tweets t
+            LEFT JOIN tweets qt ON qt.id = t.quoted_tweet_id
+            LEFT JOIN users qu ON qu.id = qt.user_id
+            WHERE t.id = ANY(%s)
             """
             session.execute(tweet_query, (list(tweet_ids),))
             tweets_result = session.fetchall()
             for tweet in tweets_result:
+                # Build composite text for quote tweets
+                text = tweet['text']
+                if tweet['quoted_tweet_id'] and tweet['quoted_text']:
+                    quoted_user = tweet['quoted_user_id'] or 'unknown'
+                    text = f"[QUOTE] {text}\n[ORIGINAL] @{quoted_user}: {tweet['quoted_text']}"
                 items.append({
                     'id': tweet['id'],
-                    'text': tweet['text'],
+                    'text': text,
                     'type': 'tweet'
                 })
         
