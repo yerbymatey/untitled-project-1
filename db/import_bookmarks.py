@@ -1,257 +1,106 @@
 import glob
 import json
-import os
-import re
 from datetime import datetime
+from typing import Dict, List
 
-import psycopg2
-from psycopg2.extras import execute_values
+from pipelines.ingest import BookmarkIngester
 
-from dotenv import load_dotenv
-load_dotenv()
+TWITTER_DATE_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
-DB_PARAMS = {
-    "dbname": os.getenv("POSTGRES_DB"),
-    "user": os.getenv("POSTGRES_USER"), 
-    "password": os.getenv("POSTGRES_PASSWORD"),
-    "host": os.getenv("POSTGRES_HOST"),
-    "port": int(os.getenv("POSTGRES_PORT"))
-}
-
-BATCH_SIZE = 1000
-
-
-def resolve_screen_name(user: dict, tweet_url: str | None = None) -> str | None:
-    """Resolve a stable handle value from stored bookmark payloads."""
-    if not user:
-        return None
-
-    handle = user.get("screen_name") or user.get("handle") or user.get("legacy", {}).get("screen_name")
-
-    if not handle:
-        candidate_sources = [tweet_url, user.get("url")]
-        for source in candidate_sources:
-            if not source:
-                continue
-            match = re.search(r"https?://(?:x|twitter)\.com/([^/?]+)/", source)
-            if match:
-                handle = match.group(1)
-                break
-
-    if handle:
-        user.setdefault("screen_name", handle)
-    else:
-        print(f"Skipping user with unresolved screen name: {user.get('name', 'unknown')}")
-
-    return handle
 
 def parse_twitter_date(date_str):
     """Convert Twitter date format to PostgreSQL timestamp format"""
     try:
-        # Twitter date format: "Wed Oct 10 20:19:24 +0000 2018"
-        dt = datetime.strptime(date_str, "%a %b %d %H:%M:%S %z %Y")
-        return dt
+        return datetime.strptime(date_str, TWITTER_DATE_FORMAT)
     except Exception as e:
         print(f"Error parsing date '{date_str}': {e}")
         return None
 
+
+def _normalize_created_at(created_at):
+    """Normalize serialized timestamps into datetime values."""
+    if not created_at or isinstance(created_at, datetime):
+        return created_at
+
+    if isinstance(created_at, str):
+        try:
+            # Handle timezone suffix used by many JSON serializers.
+            return datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        except ValueError:
+            return parse_twitter_date(created_at)
+
+    return created_at
+
+
+def _prepare_bookmarks(bookmarks: List[Dict]) -> List[Dict]:
+    """Normalize bookmark values for ingestion."""
+    prepared = []
+    for bookmark in bookmarks:
+        if not isinstance(bookmark, dict):
+            continue
+        normalized = bookmark.copy()
+        normalized["created_at"] = _normalize_created_at(normalized.get("created_at"))
+        prepared.append(normalized)
+    return prepared
+
+
+def _count_processable_bookmarks(bookmarks: List[Dict], ingester: BookmarkIngester) -> int:
+    """Keep historical return behavior of reporting processable bookmarks."""
+    count = 0
+    for bookmark in bookmarks:
+        user = bookmark.get("user")
+        if not user or not bookmark.get("id"):
+            continue
+
+        handle = ingester._resolve_screen_name(user, bookmark.get("url"))
+        user_id = user.get("id") or handle
+        if user_id:
+            count += 1
+
+    return count
+
+
 def import_bookmarks_file(file_path):
     """Import bookmarks from a JSON file into the database"""
-    
     print(f"Importing data from {file_path}...")
 
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    
-    bookmarks = data.get('bookmarks', [])
+
+    bookmarks = data.get("bookmarks", [])
     if not bookmarks:
         print("No bookmarks found in the file")
         return 0
 
-    conn = psycopg2.connect(**DB_PARAMS)
-    cursor = conn.cursor()
-    
+    prepared_bookmarks = _prepare_bookmarks(bookmarks)
+    ingester = BookmarkIngester()
+
     try:
-        # Begin transaction
-        conn.autocommit = False
-        processed_count = 0
-        
-        # Prepare batch data structures
-        users_data = []
-        tweets_data = []
-        media_data = []
-        
-        # Process each bookmark
-        for bookmark in bookmarks:
-            try:
-                # Extract user data
-                user = bookmark.get('user', {})
-                if not user:
-                    print(f"Skipping bookmark with missing user data: {bookmark.get('id', 'unknown')}")
-                    continue
-                
-                # Use screen_name as the user ID
-                screen_name = resolve_screen_name(user, bookmark.get('url'))
-                user_id = user.get('id') or screen_name
-                if not user_id:
-                    continue
-
-                # Store user data
-                user_data = (
-                    user_id,
-                    user.get('name', ''),
-                    bool(user.get('verified', False)),
-                    user.get('followers_count', 0) or 0,
-                    user.get('following_count', 0) or 0,
-                    user.get('description', '') or ''
-                )
-                users_data.append(user_data)
-
-                # Skip tweets missing IDs
-                if not bookmark.get('id'):
-                    print(f"Skipping tweet with missing ID from user {screen_name}")
-                    continue
-                
-                # Extract tweet data with defensive checks
-                created_at = parse_twitter_date(bookmark.get('created_at'))
-                quoted_status = bookmark.get('quoted_status', {})
-                media = bookmark.get('media', {})
-                
-                # Store tweet data
-                tweet_data = (
-                    bookmark['id'],
-                    user_id,
-                    bookmark.get('text', ''),
-                    created_at,
-                    bookmark.get('retweet_count', 0),
-                    bookmark.get('favorite_count', 0),
-                    bookmark.get('reply_count', 0),
-                    bookmark.get('quote_count', 0),
-                    bookmark.get('is_quote_status', False),
-                    quoted_status.get('id') if quoted_status else None,
-                    bookmark.get('url') or (f"https://x.com/{screen_name}/status/{bookmark['id']}" if screen_name else f"https://x.com/i/status/{bookmark['id']}"),
-                    media.get('has_media', False) if media else False
-                )
-                tweets_data.append(tweet_data)
-                
-                # Process media with defensive checks
-                media_items = media.get('items', []) if media else []
-                if isinstance(media_items, list):
-                    for media_item in media_items:
-                        if media_item:
-                            media_data.append((
-                                bookmark['id'],
-                                media_item.get('media_url', ''),
-                                media_item.get('type', ''),
-                                media_item.get('alt_text', ''),
-                                media_item.get('image_desc', '')
-                            ))
-                
-                processed_count += 1
-                if processed_count % 100 == 0:
-                    print(f"Processed {processed_count} bookmarks...")
-                
-            except Exception as e:
-                print(f"Error processing bookmark {bookmark.get('id', 'unknown')}: {e}")
-                continue
-        
-        # Deduplicate data before batch inserts using dictionaries
-        users_dict = {data[0]: data for data in users_data}  # Use screen_name as key
-        tweets_dict = {data[0]: data for data in tweets_data}  # Use tweet ID as key
-        media_dict = {(data[0], data[1]): data for data in media_data}  # Use (tweet_id, media_url) as key
-        
-        # Convert back to lists
-        users_data = list(users_dict.values())
-        tweets_data = list(tweets_dict.values())
-        media_data = list(media_dict.values())
-        
-        # Batch insert users
-        if users_data:
-            print(f"Inserting {len(users_data)} unique users...")
-            execute_values(
-                cursor,
-                """
-                INSERT INTO users (id, name, verified, followers_count, following_count, description)
-                VALUES %s
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    verified = EXCLUDED.verified,
-                    followers_count = EXCLUDED.followers_count,
-                    following_count = EXCLUDED.following_count,
-                    description = EXCLUDED.description
-                """,
-                users_data
-            )
-        
-        # Batch insert tweets
-        if tweets_data:
-            print(f"Inserting {len(tweets_data)} unique tweets...")
-            execute_values(
-                cursor,
-                """
-                INSERT INTO tweets (id, user_id, text, created_at, retweet_count, favorite_count, 
-                                  reply_count, quote_count, is_quote_status, quoted_tweet_id, url, has_media)
-                VALUES %s
-                ON CONFLICT (id) DO UPDATE SET
-                    user_id = EXCLUDED.user_id,
-                    text = EXCLUDED.text,
-                    created_at = EXCLUDED.created_at,
-                    retweet_count = EXCLUDED.retweet_count,
-                    favorite_count = EXCLUDED.favorite_count,
-                    reply_count = EXCLUDED.reply_count,
-                    quote_count = EXCLUDED.quote_count,
-                    is_quote_status = EXCLUDED.is_quote_status,
-                    quoted_tweet_id = EXCLUDED.quoted_tweet_id,
-                    url = EXCLUDED.url,
-                    has_media = EXCLUDED.has_media
-                """,
-                tweets_data
-            )
-        
-        # Batch insert media
-        if media_data:
-            print(f"Inserting {len(media_data)} media items...")
-            execute_values(
-                cursor,
-                """
-                INSERT INTO media (tweet_id, media_url, type, alt_text, image_desc)
-                VALUES %s
-                ON CONFLICT (tweet_id, media_url) DO UPDATE SET
-                    type = EXCLUDED.type,
-                    alt_text = EXCLUDED.alt_text,
-                    image_desc = COALESCE(media.image_desc, EXCLUDED.image_desc, '')
-                """,
-                media_data
-            )
-        
-        # Commit the transaction
-        conn.commit()
+        processed_count = _count_processable_bookmarks(prepared_bookmarks, ingester)
+        ingester.ingest_bookmarks(prepared_bookmarks, save_to_file=False)
         print(f"Successfully imported {processed_count} bookmarks from {file_path}")
         return processed_count
-    
+
     except Exception as e:
-        conn.rollback()
         print(f"Error importing data: {e}")
         return 0
-    
-    finally:
-        cursor.close()
-        conn.close()
+
 
 def import_all_bookmarks():
     """Import all bookmark JSON files in the current directory"""
-    bookmark_files = glob.glob("bookmarks_*.json") # TODO: pull in tweets from remote worker queue?
-    
+    bookmark_files = glob.glob("bookmarks_*.json")
+
     if not bookmark_files:
         print("No bookmark files found in the current directory")
         return
-    
+
     total_imported = 0
     for file_path in bookmark_files:
         count = import_bookmarks_file(file_path)
         total_imported += count
-    
+
     print(f"Total imported bookmarks: {total_imported}")
 
+
 if __name__ == "__main__":
-    import_all_bookmarks() 
+    import_all_bookmarks()
