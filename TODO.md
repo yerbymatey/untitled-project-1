@@ -22,16 +22,14 @@ owner: albus (coordination), gene (approval)
 
 ## Queued (not started)
 
-### Quote Tweet Pipeline
-- **branch:** `fix/quote-tweets` (create from hosted)
-- **files to modify:**
-  - `bookmarks/scraper.py` — extract expanded_url, display_url from URL entities
-  - `pipelines/ingest.py` — insert OG tweets as independent rows with dedup
-  - `scripts/encode_embeddings.py` — composite embedding for QTs
-- **files to create:**
-  - `scripts/backfill_og_tweets.py` — parse existing JSON backups, insert missing OG tweets
-  - `scripts/resolve_urls.py` — resolve t.co → expanded for existing db rows
-- **depends on:** embedding job completion (need stable db state)
+### [DONE] Quote Tweet Pipeline — branch `fix/quote-tweets`
+- [x] `bookmarks/scraper.py` — extract expanded_url, display_url from URL entities
+- [x] `pipelines/ingest.py` — insert OG tweets as independent rows with dedup
+- [x] `scripts/encode_embeddings.py` — composite embedding `[QUOTE]...[ORIGINAL]...`
+- [x] `scripts/backfill_og_tweets.py` — parse JSON backups, insert missing OG tweets + expanded URLs
+- [x] `scripts/resolve_urls.py` — resolve remaining t.co → expanded + fetch og metadata
+- [x] `db/schema.py` — added title, description, content_snippet columns to urls table
+- **ready to merge** — needs gene approval, then run backfill on bluephoria
 
 ### Link Content Extraction
 - **branch:** `feat/link-content` (create from hosted, after quote-tweets merges)
