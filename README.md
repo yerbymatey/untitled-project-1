@@ -18,7 +18,7 @@ a scrappy social-media content search engine with an ai twist. yes, this is a mi
   > ```
 
 - **vector search**  
-  cosine sims over stored embeddings (no pgvector needed).  
+  cosine sims over stored embeddings in PostgreSQL + pgvector.  
   peek at `scripts/search_embeddings.py` for full deets.
 
 - **web ui (optional)**  
@@ -37,7 +37,14 @@ a scrappy social-media content search engine with an ai twist. yes, this is a mi
    pip install -e .
    ```
 
-3. tweak your API creds in `utils/config.py` (or export as env vars)
+3. configure environment  
+   - copy `.env.example` to `.env`
+   - set `DATABASE_URL` to a managed PostgreSQL instance with pgvector
+   - if you want local dev DB fallback, start it with:
+   ```bash
+   docker compose --profile local-db up -d postgres-local
+   ```
+   and use the `POSTGRES_*` vars instead of `DATABASE_URL`
 
 4. fire up the pipeline  
    ```bash

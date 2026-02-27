@@ -1,20 +1,13 @@
 import psycopg2
 import json
 import glob
-import os
 from datetime import datetime
 from psycopg2.extras import execute_values
 
 from dotenv import load_dotenv
-load_dotenv()
+from utils.config import DB_CONFIG
 
-DB_PARAMS = {
-    "dbname": os.getenv("POSTGRES_DB"),
-    "user": os.getenv("POSTGRES_USER"), 
-    "password": os.getenv("POSTGRES_PASSWORD"),
-    "host": os.getenv("POSTGRES_HOST"),
-    "port": int(os.getenv("POSTGRES_PORT"))
-}
+load_dotenv()
 
 BATCH_SIZE = 1000
 
@@ -41,7 +34,7 @@ def import_bookmarks_file(file_path):
         print("No bookmarks found in the file")
         return 0
 
-    conn = psycopg2.connect(**DB_PARAMS)
+    conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
     
     try:

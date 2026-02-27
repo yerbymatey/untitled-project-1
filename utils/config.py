@@ -1,7 +1,17 @@
 import os
+from typing import Dict, Set
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    value = os.getenv(key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 
 # API Configuration
 BOOKMARKS_API_ID = os.getenv("BOOKMARKS_API_ID")
@@ -62,17 +72,58 @@ RATE_LIMIT_DELAY = 2  # seconds
 MAX_EMPTY_PAGES = 3
 
 # Database Configuration
-DB_CONFIG = {
-    "dbname": os.getenv("POSTGRES_DB"),
-    "user": os.getenv("POSTGRES_USER"),
-    "password": os.getenv("POSTGRES_PASSWORD"),
-    "host": os.getenv("POSTGRES_HOST"),
-    "port": int(os.getenv("POSTGRES_PORT", "5432")),
+DATABASE_URL = os.getenv("DATABASE_URL")
+DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
+PGVECTOR_REQUIRED = _env_bool("PGVECTOR_REQUIRED", True)
+ENABLE_VECTOR_INDEXES = _env_bool("ENABLE_VECTOR_INDEXES", True)
+
+
+def get_db_config() -> Dict[str, object]:
+    if DATABASE_URL:
+        return {
+            "dsn": DATABASE_URL,
+            "connect_timeout": DB_CONNECT_TIMEOUT,
+        }
+
+    config: Dict[str, object] = {
+        "dbname": os.getenv("POSTGRES_DB"),
+        "user": os.getenv("POSTGRES_USER"),
+        "password": os.getenv("POSTGRES_PASSWORD"),
+        "host": os.getenv("POSTGRES_HOST", "localhost"),
+        "port": int(os.getenv("POSTGRES_PORT", "5432")),
+        "connect_timeout": DB_CONNECT_TIMEOUT,
+    }
+    return config
+
+
+DB_CONFIG = get_db_config()
+
+REQUIRED_TABLES: Set[str] = {
+    "users",
+    "tweets",
+    "hashtags",
+    "tweet_hashtags",
+    "urls",
+    "media",
+    "user_description_urls",
+    "tweet_interpretations",
 }
 
-# Database Schema
-DB_SCHEMA = """
--- Create the vector extension if it doesn't exist
+
+def build_db_schema(dimension: int = EMBEDDING_DIM) -> str:
+    vector_indexes_sql = ""
+    if ENABLE_VECTOR_INDEXES:
+        vector_indexes_sql = """
+CREATE INDEX IF NOT EXISTS idx_tweets_embedding
+ON tweets USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+CREATE INDEX IF NOT EXISTS idx_media_embedding
+ON media USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+"""
+
+    return f"""
+-- Create pgvector extension where supported.
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -97,7 +148,7 @@ CREATE TABLE IF NOT EXISTS tweets (
     quoted_tweet_id VARCHAR(20),
     url TEXT,
     has_media BOOLEAN DEFAULT FALSE,
-    embedding vector(1536)
+    embedding vector({dimension})
 );
 
 CREATE TABLE IF NOT EXISTS hashtags (
@@ -124,6 +175,8 @@ CREATE TABLE IF NOT EXISTS media (
     media_url TEXT,
     type VARCHAR(50),
     alt_text TEXT,
+    image_desc TEXT,
+    embedding vector({dimension}),
     PRIMARY KEY (tweet_id, media_url)
 );
 
@@ -140,4 +193,11 @@ CREATE TABLE IF NOT EXISTS tweet_interpretations (
     interpretation TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_tweets_created_at ON tweets (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_tweet_id ON media (tweet_id);
+{vector_indexes_sql}
 """
+
+
+DB_SCHEMA = build_db_schema()
