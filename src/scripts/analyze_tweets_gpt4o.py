@@ -4,7 +4,7 @@ import requests
 import base64
 from openai import OpenAI
 from dotenv import load_dotenv
-from db.session import get_db_session
+from src.db.session import get_db_session
 
 load_dotenv()
 

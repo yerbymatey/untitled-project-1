@@ -1,7 +1,7 @@
-from bookmarks.scraper import TwitterBookmarkScraper
-from bookmarks.parser import parse_tweet_data
-from pipelines.ingest import BookmarkIngester
-from utils.logger import setup_logger
+from src.bookmarks.scraper import TwitterBookmarkScraper
+from src.bookmarks.parser import parse_tweet_data
+from src.pipelines.ingest import BookmarkIngester
+from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

@@ -66,22 +66,22 @@ def main():
     parser.add_argument(
         "--skip-db-setup",
         action="store_true",
-        help="Skip the database schema setup step (`python -m db.schema`).",
+        help="Skip the database schema setup step (`python -m src.db.schema`).",
     )
     parser.add_argument(
         "--skip-scraping",
         action="store_true",
-        help="Skip the data scraping step (`python -m scripts.run_scraper`).",
+        help="Skip the data scraping step (`python -m src.scripts.run_scraper`).",
     )
     parser.add_argument(
         "--skip-embeddings",
         action="store_true",
-        help="Skip the embedding generation step (`python -m scripts.encode_embeddings`).",
+        help="Skip the embedding generation step (`python -m src.scripts.encode_embeddings`).",
     )
     parser.add_argument(
         "--run-ds-vl",
         action="store_true",
-        help="Run the optional DeepSeek VL image description step (`python -m scripts.ds_vl`).",
+        help="Run the optional DeepSeek VL image description step (`python -m src.scripts.ds_vl`).",
     )
 
     args = parser.parse_args()
@@ -93,7 +93,7 @@ def main():
     # Step 1: Database Schema Setup (Optional)
     if not args.skip_db_setup:
         logger.info("--- Running Database Schema Setup ---")
-        if not run_command([python_executable, "-m", "db.schema"]):
+        if not run_command([python_executable, "-m", "src.db.schema"]):
             logger.error("Database schema setup failed. Aborting pipeline.")
             sys.exit(1)
         logger.info("--- Database Schema Setup Finished ---")
@@ -104,7 +104,7 @@ def main():
     if not args.skip_scraping:
         logger.info("--- Running Data Scraper ---")
         # Assuming run_scraper handles ingestion via BookmarkIngester internally
-        if not run_command([python_executable, "-m", "scripts.run_scraper"]):
+        if not run_command([python_executable, "-m", "src.scripts.run_scraper"]):
             logger.error("Data scraping failed. Aborting pipeline.")
             sys.exit(1)
         logger.info("--- Data Scraper Finished ---")
@@ -114,7 +114,7 @@ def main():
     # Step 3: Generate Embeddings (Optional)
     if not args.skip_embeddings:
         logger.info("--- Running Embedding Generation ---")
-        if not run_command([python_executable, "-m", "scripts.encode_embeddings"]):
+        if not run_command([python_executable, "-m", "src.scripts.encode_embeddings"]):
             # Make this non-fatal? Depends on workflow. For now, let's make it fatal.
             logger.error("Embedding generation failed. Aborting pipeline.")
             sys.exit(1)
@@ -125,7 +125,7 @@ def main():
     # Step 4: Generate Image Descriptions (Optional)
     if args.run_ds_vl:
         logger.info("--- Running DeepSeek VL Image Description ---")
-        if not run_command([python_executable, "-m", "scripts.ds_vl"]):
+        if not run_command([python_executable, "-m", "src.scripts.ds_vl"]):
             # This is optional, so maybe just warn? Let's warn for now.
             logger.warning("DeepSeek VL image description step failed. Continuing pipeline.")
         logger.info("--- DeepSeek VL Image Description Finished ---")

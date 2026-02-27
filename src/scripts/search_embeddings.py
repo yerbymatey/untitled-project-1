@@ -11,8 +11,8 @@ from huggingface_hub import snapshot_download
 import numpy as np
 from typing import List, Dict, Tuple
 
-from db.session import get_db_session
-from utils.embedding_utils import (
+from src.db.session import get_db_session
+from src.utils.embedding_utils import (
     get_text_embedding,
     mean_pooling,
     DEVICE,

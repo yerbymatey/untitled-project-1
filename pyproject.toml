@@ -14,8 +14,8 @@ dependencies = [
     "playwright>=1.42.0",
 ]
 
-[tool.setuptools]
-packages = ["db", "pipelines", "bookmarks", "utils", "scripts"]
+[tool.setuptools.packages.find]
+include = ["src*"]
 
 [project.optional-dependencies]
 # Default DeepSeek Vision Language Model dependencies
@@ -89,5 +89,5 @@ py311_dsvl = [
 ]
 
 [project.scripts]
-untitled_project_1 = "scripts.run_scraper:main"
-grab_headers = "scrapers.grab_headers:save_twitter_headers" 
+untitled_project_1 = "src.scripts.run_scraper:main"
+grab_headers = "src.bookmarks.grab_headers:save_twitter_headers"

@@ -3,8 +3,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from db.session import get_db_session
-from utils.logger import setup_logger
+from src.db.session import get_db_session
+from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

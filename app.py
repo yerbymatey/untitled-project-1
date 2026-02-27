@@ -1,8 +1,8 @@
-from flask import Flask, render_template, request, jsonify
-from scripts.search_embeddings import search_all
-import os
+from flask import Flask, jsonify, render_template, request
 
-app = Flask(__name__)
+from src.scripts.search_embeddings import search_all
+
+app = Flask(__name__, template_folder="src/templates")
 
 @app.route('/')
 def home():
