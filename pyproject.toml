@@ -50,7 +50,7 @@ ds_vlm = [
     "transformers==4.50.3",
     "typing-extensions==4.12.2",
     "urllib3==2.3.0",
-    "deepseek-vl @ file:///Users/gene/Developer/DeepSeek-VL",
+    "deepseek-vl @ https://github.com/deepseek-ai/DeepSeek-VL.git",
 ]
 
 # Python 3.11 specific configuration for DeepSeek-VL
@@ -85,7 +85,7 @@ py311_dsvl = [
     "transformers==4.50.3",
     "typing-extensions==4.12.2",
     "urllib3==2.3.0",
-    "deepseek-vl @ file:///Users/gene/Developer/DeepSeek-VL",
+    "deepseek-vl @ https://github.com/deepseek-ai/DeepSeek-VL.git",
 ]
 
 [project.scripts]
