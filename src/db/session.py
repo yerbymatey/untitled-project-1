@@ -4,8 +4,8 @@ import threading
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
-from utils.config import DB_CONFIG, DB_SCHEMA
-from utils.logger import setup_logger
+from src.utils.config import DB_CONFIG, DB_SCHEMA
+from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

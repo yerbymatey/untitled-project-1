@@ -14,12 +14,12 @@ a scrappy social-media content search engine with an ai twist. yes, this is a mi
 
   > on first run you might need to manually kick off the auth grab:  
   > ```bash
-  > python scripts/get_headers.py
+  > python -m src.bookmarks.grab_headers
   > ```
 
 - **vector search**  
   cosine sims over stored embeddings (no pgvector needed).  
-  peek at `scripts/search_embeddings.py` for full deets.
+  peek at `src/scripts/search_embeddings.py` for full deets.
 
 - **web ui (optional)**  
   tiny flask app to poke around your data in the browser.
@@ -37,7 +37,7 @@ a scrappy social-media content search engine with an ai twist. yes, this is a mi
    pip install -e .
    ```
 
-3. tweak your API creds in `utils/config.py` (or export as env vars)
+3. tweak your API creds in `src/utils/config.py` (or export as env vars)
 
 4. fire up the pipeline  
    ```bash
@@ -46,7 +46,7 @@ a scrappy social-media content search engine with an ai twist. yes, this is a mi
 
 5. (optional) search right from the CLI:  
    ```bash
-   python scripts/search_cli.py "rf hacking" --limit 5
+   python -m src.scripts.search_cli "rf hacking" --limit 5
    ```
 
 6. (optional) launch the web ui:  
@@ -61,24 +61,24 @@ a scrappy social-media content search engine with an ai twist. yes, this is a mi
 .
 ├── run_pipeline.py          # main wrapper for everything
 ├── app.py                   # flask web server
-├── pipelines/               # data pipelines (scrape → encode → index)
-├── scripts/
-│   ├── get_headers.py       # grab or refresh API tokens/headers
-│   ├── run_scraper.py       # import tweets & media
-│   ├── encode_embeddings.py # embed content
-│   ├── search_cli.py        # CLI search interface
-│   └── search_embeddings.py # search logic
-├── utils/
-│   ├── config.py            # db & api settings
-│   ├── embedding_utils.py   # embedding helpers
-│   └── process_images.py    # resize + preprocess images
-└── db/
-    └── schema.py            # schema & session setup
+└── src/
+    ├── pipelines/           # data pipelines (scrape → encode → index)
+    ├── scripts/
+    │   ├── run_scraper.py       # import tweets & media
+    │   ├── encode_embeddings.py # embed content
+    │   ├── search_cli.py        # CLI search interface
+    │   └── search_embeddings.py # search logic
+    ├── utils/
+    │   ├── config.py            # db & api settings
+    │   ├── embedding_utils.py   # embedding helpers
+    │   └── process_images.py    # resize + preprocess images
+    └── db/
+        └── schema.py            # schema & session setup
 ```
 
 ## notes & caveats
 
-- **token refresh** / headers grab is built into `run_pipeline.py` but you can still run `get_headers.py` on its own if something goes sideways.  
+- **token refresh** / headers grab is built into `run_pipeline.py` but you can still run `python -m src.bookmarks.grab_headers` if something goes sideways.  
 - **advanced usage** (custom scrapes, one-off scripts, special image tricks) is all wrapped up in `run_pipeline.py` now—no need to juggle dozens of commands.
 - **model usage** i'm using deepseek-vl-7b for first pass semantic descriptions for images but you could just use another one. nomic-embed-vision-v1.5 for image embeddings but actually moving away from that and using interleaved img desc text + raw img tensor smoothie as a placeholder
 - **extra notes** some feats might still be artifacts of other runs i've tried--like analyzing tweets with gpt4o along with the text and image produces an explainer-source text paired doc you can embed for a bit more nuance in yr searches but by and large it's fine without it so it's not been in usage lately

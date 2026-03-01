@@ -1,4 +1,4 @@
-from db.session import get_db_session
+from src.db.session import get_db_session
 
 def setup_database(dimension: int = 768):
     """Set up the complete database schema including vector support"""

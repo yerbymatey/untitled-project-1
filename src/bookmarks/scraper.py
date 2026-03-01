@@ -4,8 +4,8 @@ import re
 from typing import Dict, List, Optional
 
 import requests
-from utils.config import API_URL, API_HEADERS, API_FEATURES, BATCH_SIZE, RATE_LIMIT_DELAY, MAX_EMPTY_PAGES
-from utils.logger import setup_logger
+from src.utils.config import API_URL, API_HEADERS, API_FEATURES, BATCH_SIZE, RATE_LIMIT_DELAY, MAX_EMPTY_PAGES
+from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

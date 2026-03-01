@@ -8,9 +8,9 @@ from typing import List, Dict, Any
 from PIL import Image
 from tqdm import tqdm
 
-from utils.vl_utils import setup_vl_model, process_vl_conversation
-from db.session import get_db_session
-from utils.process_images import resize_image
+from src.utils.vl_utils import setup_vl_model, process_vl_conversation
+from src.db.session import get_db_session
+from src.utils.process_images import resize_image
 
 def get_total_count(overwrite=False):
     """Get total count of media items without descriptions"""

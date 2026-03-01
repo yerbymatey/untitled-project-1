@@ -11,9 +11,9 @@ from io import BytesIO
 import tempfile
 from huggingface_hub import snapshot_download
 
-from db.session import get_db_session
-from utils.vl_utils import setup_vl_model, process_vl_conversation
-from utils.process_images import resize_image
+from src.db.session import get_db_session
+from src.utils.vl_utils import setup_vl_model, process_vl_conversation
+from src.utils.process_images import resize_image
 
 # Using OpenAI's CLIP model with 768 dimensions
 VISION_MODEL_NAME = "openai/clip-vit-large-patch14-336"

@@ -8,8 +8,8 @@ from tqdm import tqdm
 import argparse
 import os
 
-from db.session import get_db_session
-from utils.embedding_utils import (
+from src.db.session import get_db_session
+from src.utils.embedding_utils import (
     mean_pooling,
     DEVICE,
     TEXT_MODEL_NAME,

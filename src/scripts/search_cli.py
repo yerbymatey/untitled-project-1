@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
-from search_embeddings import search_tweets, search_media, search_all, DEVICE
+from src.scripts.search_embeddings import search_tweets, search_media, search_all, DEVICE
 
 def format_tweet_result(tweet):
     return f"""
